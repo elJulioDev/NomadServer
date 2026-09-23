@@ -27,7 +27,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -472,12 +471,8 @@ private fun LabeledValue(label: String, value: String, onCopy: (() -> Unit)? = n
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(value, style = MaterialTheme.typography.bodyMedium)
             if (onCopy != null) {
-                IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
-                    Icon(
-                        Icons.Default.ContentCopy,
-                        contentDescription = "Copiar",
-                        modifier = Modifier.size(16.dp),
-                    )
+                TextButton(onClick = onCopy, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text("Copiar", style = MaterialTheme.typography.labelSmall)
                 }
             }
         }
