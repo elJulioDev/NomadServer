@@ -13,12 +13,15 @@ import kotlinx.coroutines.launch
 import java.io.File
 
 /**
- * Owns the Minecraft server process and exposes its state to the UI.
+ * Dueño del proceso de un servidor Minecraft y su estado para la UI.
  *
- * ponytail: lives on the Application, not a foreground service yet — Fase 4 moves it to a
- * foreground service so Android doesn't kill it in the background.
+ * Una instancia por [serverId] — sus archivos viven en `filesDir/servers/<serverId>/`, aislados
+ * de otros servidores. El JRE es compartido (se extrae una sola vez en `filesDir/jre`).
+ *
+ * ponytail: vive en la Application, no en un foreground service todavía — Fase 4 lo mueve a un
+ * foreground service para que Android no lo mate en background.
  */
-class ServerManager(private val context: Context) {
+class ServerManager(private val context: Context, private val serverId: String) {
 
     enum class Status { Stopped, Starting, Running, Stopping, Error }
 
@@ -36,9 +39,9 @@ class ServerManager(private val context: Context) {
     private var requestedStop = false
 
     private val serverDir: File
-        get() = File(context.filesDir, "server").apply { mkdirs() }
+        get() = File(context.filesDir, "servers/$serverId").apply { mkdirs() }
 
-    /** The JRE's `java`, which lives in filesDir with the rest of the runtime. */
+    /** El `java` del JRE, compartido por todos los servidores. */
     private val javaBinary: File
         get() = File(context.filesDir, "jre/bin/java")
 

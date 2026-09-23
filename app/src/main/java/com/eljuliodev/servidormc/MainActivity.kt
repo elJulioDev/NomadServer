@@ -11,6 +11,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -23,17 +24,24 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
@@ -63,7 +71,7 @@ import androidx.compose.ui.unit.dp
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val manager = (application as NomadApplication).serverManager
+        val app = application as NomadApplication
         setContent {
             MaterialTheme(
                 colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()
@@ -72,11 +80,184 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    ServidorMcApp(manager)
+                    AppRoot(app)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun AppRoot(app: NomadApplication) {
+    val context = LocalContext.current
+    var profiles by remember { mutableStateOf(ServerProfileStore.list(context)) }
+    var selected by remember { mutableStateOf<ServerProfile?>(null) }
+    val current = selected
+
+    if (current == null) {
+        ServerListScreen(
+            app = app,
+            profiles = profiles,
+            onOpen = { selected = it },
+            onCreate = { name, ram ->
+                val created = ServerProfileStore.add(context, name, ram)
+                profiles = ServerProfileStore.list(context)
+                selected = created
+            },
+            onDelete = { profile ->
+                ServerProfileStore.remove(context, profile.id)
+                profiles = ServerProfileStore.list(context)
+            },
+        )
+    } else {
+        ServerDetailScreen(
+            profile = current,
+            manager = app.managerFor(current.id),
+            onBack = { selected = null },
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ServerListScreen(
+    app: NomadApplication,
+    profiles: List<ServerProfile>,
+    onOpen: (ServerProfile) -> Unit,
+    onCreate: (name: String, ramMb: Int) -> Unit,
+    onDelete: (ServerProfile) -> Unit,
+) {
+    var showCreate by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<ServerProfile?>(null) }
+
+    Scaffold(
+        topBar = { TopAppBar(title = { Text("NomadServer") }) },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showCreate = true }) {
+                Icon(Icons.Default.Add, contentDescription = "Crear servidor")
+            }
+        },
+    ) { padding ->
+        if (profiles.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "No tienes servidores aún.\nToca + para crear uno.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(profiles, key = { it.id }) { profile ->
+                    ServerRow(
+                        profile = profile,
+                        manager = app.managerFor(profile.id),
+                        onOpen = { onOpen(profile) },
+                        onDelete = { pendingDelete = profile },
+                    )
+                }
+            }
+        }
+    }
+
+    if (showCreate) {
+        CreateServerDialog(
+            onDismiss = { showCreate = false },
+            onCreate = { name, ram -> onCreate(name, ram); showCreate = false },
+        )
+    }
+
+    pendingDelete?.let { profile ->
+        AlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text("¿Eliminar \"${profile.name}\"?") },
+            text = { Text("Se borra el perfil. Los archivos del mundo quedan en el teléfono.") },
+            confirmButton = {
+                TextButton(onClick = { onDelete(profile); pendingDelete = null }) { Text("Eliminar") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDelete = null }) { Text("Cancelar") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ServerRow(
+    profile: ServerProfile,
+    manager: ServerManager,
+    onOpen: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val status by manager.status.collectAsState()
+    val dot = when (status) {
+        ServerManager.Status.Running -> Color(0xFF4CAF50)
+        ServerManager.Status.Starting, ServerManager.Status.Stopping -> Color(0xFFFFB300)
+        ServerManager.Status.Error -> MaterialTheme.colorScheme.error
+        ServerManager.Status.Stopped -> MaterialTheme.colorScheme.outline
+    }
+    Card(onClick = onOpen, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.padding(16.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Surface(modifier = Modifier.size(12.dp), shape = CircleShape, color = dot) {}
+            Column(modifier = Modifier.weight(1f)) {
+                Text(profile.name, style = MaterialTheme.typography.titleMedium)
+                Text("${profile.ramMb} MB · ${status.label}", style = MaterialTheme.typography.bodySmall)
+            }
+            IconButton(onClick = onDelete) {
+                Icon(Icons.Default.Delete, contentDescription = "Eliminar")
+            }
+        }
+    }
+}
+
+@Composable
+private fun CreateServerDialog(
+    onDismiss: () -> Unit,
+    onCreate: (name: String, ramMb: Int) -> Unit,
+) {
+    var name by remember { mutableStateOf("") }
+    var ramMb by remember { mutableIntStateOf(2048) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Nuevo servidor") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nombre") },
+                    singleLine = true,
+                )
+                Text("RAM asignada: $ramMb MB")
+                Slider(
+                    value = ramMb.toFloat(),
+                    onValueChange = { ramMb = it.toInt() },
+                    valueRange = 1024f..4096f,
+                    steps = 5,
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = name.isNotBlank(), onClick = { onCreate(name.trim(), ramMb) }) {
+                Text("Crear")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancelar") }
+        },
+    )
 }
 
 private enum class Dest(val label: String, val icon: ImageVector) {
@@ -87,16 +268,25 @@ private enum class Dest(val label: String, val icon: ImageVector) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ServidorMcApp(manager: ServerManager) {
+private fun ServerDetailScreen(profile: ServerProfile, manager: ServerManager, onBack: () -> Unit) {
     var dest by remember { mutableStateOf(Dest.Panel) }
-    var ramMb by remember { mutableIntStateOf(2048) }
+    var ramMb by remember { mutableIntStateOf(profile.ramMb) }
     val status by manager.status.collectAsState()
     val logs by manager.logs.collectAsState()
     val running = status == ServerManager.Status.Running
     val busy = status == ServerManager.Status.Starting || status == ServerManager.Status.Stopping
 
     Scaffold(
-        topBar = { TopAppBar(title = { Text("NomadServer") }) }
+        topBar = {
+            TopAppBar(
+                title = { Text(profile.name) },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Volver")
+                    }
+                },
+            )
+        }
     ) { padding ->
         Row(modifier = Modifier.padding(padding).fillMaxSize()) {
             NavigationRail {
