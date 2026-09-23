@@ -15,3 +15,7 @@
 local.properties
 docs/
 AGENTS.md
+
+# JRE Android arm64 (~130 MB extracted): local-only build input, see scripts/prepare-jre.sh
+jre/
+app/src/main/assets/jre.zip
