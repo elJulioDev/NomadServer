@@ -36,6 +36,14 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
 
+    /**
+     * Líneas escritas en total, nunca decrece (la lista sí: es una ventana de 2000).
+     * La UI lo usa para enviar sólo las líneas nuevas en cada push, en vez del log entero.
+     */
+    @Volatile
+    var logTotal: Long = 0L
+        private set
+
     /** RAM residente real del proceso (MB), null si no se pudo leer o está apagado. */
     private val _ramUsedMb = MutableStateFlow<Int?>(null)
     val ramUsedMb: StateFlow<Int?> = _ramUsedMb.asStateFlow()
@@ -182,8 +190,12 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private val joinRegex = Regex(""": (\S+) joined the game""")
     private val leaveRegex = Regex(""": (\S+) left the game""")
 
+    @Synchronized
     private fun log(line: String) {
         Log.i(TAG, line)
+        // El contador sube ANTES de publicar la lista: si el colector de la UI se reanuda en línea
+        // (Main.immediate), ya ve el total nuevo y no se pierde la última línea.
+        logTotal++
         _logs.value = (_logs.value + line).takeLast(MAX_LOG_LINES)
         joinRegex.find(line)?.let { m -> _players.value += m.groupValues[1] }
         leaveRegex.find(line)?.let { m -> _players.value -= m.groupValues[1] }

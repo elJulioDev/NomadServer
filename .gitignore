@@ -19,3 +19,6 @@ AGENTS.md
 # JRE Android arm64 (~130 MB extracted): local-only build input, see scripts/prepare-jre.sh
 jre/
 app/src/main/assets/jre.zip
+
+# UI web (Vite): dependencias de desarrollo, ver web/
+web/node_modules/

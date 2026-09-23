@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: "Monocraft";
+  src: url("./assets/monocraft.ttf") format("truetype");
+  font-display: swap;
+}
+
+@theme {
+  --color-nomad-bg: #0a0e17;
+  --color-nomad-surface: #11172a;
+  --color-nomad-card: #141b2e;
+  --color-nomad-border: #232c42;
+  --color-nomad-text: #e7ecf5;
+  --color-nomad-muted: #8b93aa;
+  --color-nomad-online: #34d399;
+  --color-nomad-warn: #fbbf24;
+  --color-nomad-accent: #3b82f6;
+  --font-pixel: "Monocraft", ui-monospace, monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-nomad-bg);
+  color: var(--color-nomad-text);
+  color-scheme: dark;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Rango táctil cómodo sin el look de slider nativo. */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-nomad-border);
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--color-nomad-accent);
+  border: 2px solid var(--color-nomad-bg);
+}
+input[type="range"]:disabled::-webkit-slider-thumb {
+  background: var(--color-nomad-muted);
+}

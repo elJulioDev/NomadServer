@@ -4,13 +4,16 @@
 
 **Tu servidor de Minecraft Java, corriendo en tu propio teléfono.**
 
-App nativa para Android que levanta un servidor *vanilla* de Minecraft Java con un JRE embebido —
-sin root, sin PC encendida, sin suscripciones.
+App Android que levanta un servidor *vanilla* de Minecraft Java con un JRE embebido —
+sin root, sin PC encendida, sin suscripciones. La interfaz es web (React + TypeScript) dentro de
+un WebView; el motor del servidor es Kotlin.
 
 ![Estado](https://img.shields.io/badge/estado-en_desarrollo-F0B429)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84?logo=android&logoColor=white)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.2.10-7F52FF?logo=kotlin&logoColor=white)
-![Jetpack Compose](https://img.shields.io/badge/Jetpack_Compose-BOM_2026.08.00-4285F4)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-4-38BDF8?logo=tailwindcss&logoColor=white)
 ![Minecraft](https://img.shields.io/badge/Minecraft-Server_26.x-5B8731?logo=minecraft&logoColor=white)
 ![JRE](https://img.shields.io/badge/JRE-25_arm64-blue)
 ![Gradle](https://img.shields.io/badge/Gradle-9.6-02303A?logo=gradle&logoColor=white)
@@ -48,7 +51,8 @@ misma red Wi-Fi con la dirección que la app muestra en pantalla.
 
 ## Características
 
-- **Interfaz Compose** — panel con estado en tiempo real, consola y ajustes; tema claro/oscuro automático.
+- **Interfaz web** — panel con estado en tiempo real, consola y ajustes, hecha en React + TypeScript
+  y embebida en un WebView; se diseña en el navegador con `npm run dev` y datos simulados.
 - **Varios servidores** — perfiles independientes, cada uno con su propio mundo, directorio y RAM asignada (1–4 GB).
 - **Métricas reales** — RAM residente leyendo `/proc` (suma todos los JVMs del server) y jugadores conectados parseando `joined/left the game`.
 - **Consola en vivo** — stdout+stderr del servidor, con botón para copiar todo el log al portapapeles.
@@ -108,7 +112,7 @@ misma red Wi-Fi con la dirección que la app muestra en pantalla.
 
 ```mermaid
 flowchart LR
-    A["UI Compose<br/>MainActivity"] -->|"collecta StateFlow"| B["ServerManager<br/>1 instancia por servidor"]
+    A["UI web React/TS<br/>assets/ui + WebUi"] -->|"NomadBridge / onNomadState"| B["ServerManager<br/>1 instancia por servidor"]
     B -->|"ProcessBuilder"| C["JRE 25 arm64<br/>filesDir/jre"]
     C --> D["server.jar vanilla<br/>proceso hijo en Dispatchers.IO"]
     B -->|"ensureEula /<br/>ensureProperties"| E["ServerFiles"]
@@ -118,11 +122,16 @@ flowchart LR
 
 - **`NomadApplication`** crea un `ServerManager` por perfil y lo mantiene durante toda la vida de la app.
 - **`ServerManager`** lanza el JVM como proceso separado, captura sus logs y expone `status`,
-  `logs`, `ramUsedMb` y `players` como `StateFlow` que la UI recolecta.
+  `logs`, `ramUsedMb` y `players` como `StateFlow`.
+- **`WebUi`** sirve la UI web (`app/src/main/assets/ui`) con `WebViewAssetLoader` y traduce los
+  `StateFlow` a un `snapshot` JSON que la web consume (el log viaja en deltas, no entero);
+  de vuelta recibe las acciones (`start`/`stop`/crear/borrar/copiar) por `window.NomadBridge`.
+  No construye ni empuja nada mientras la app está en segundo plano.
 - **`JreInstaller`** extrae `assets/jre.zip` una sola vez y restaura los bits de ejecución de
   `bin/*` (los ZIP no guardan permisos).
-- **Stack**: Kotlin · Jetpack Compose + Material 3 · coroutines/StateFlow · Gradle 9.6 + AGP 9.4.1 ·
-  sin dependencias de red externas (`HttpURLConnection` + `org.json` incluido en Android).
+- **Stack**: Kotlin + coroutines/StateFlow · React 19 + TypeScript + Tailwind CSS 4 (Vite) ·
+  Gradle 9.6 + AGP 9.4.1 · sin dependencias de red externas
+  (`HttpURLConnection` + `org.json` incluido en Android).
 
 ---
 
@@ -130,7 +139,7 @@ flowchart LR
 
 | Fase | Estado | Descripción |
 |:---:|:---:|---|
-| 1 | OK | **Base** — proyecto Gradle/AGP 9, UI Compose con panel, consola y ajustes |
+| 1 | OK | **Base** — proyecto Gradle/AGP 9, UI web (React/TS) con panel, consola y ajustes |
 | 2 | OK | **Motor** — JRE 25 embebido, descarga de `server.jar`, eula/properties automáticos |
 | 3 | OK | **Multi-servidor y métricas** — perfiles, RAM real vía `/proc`, jugadores, IP LAN copiable |
 | 4 | Pendiente | **Foreground service** — el server sobrevive en segundo plano y con la pantalla apagada |
@@ -167,7 +176,14 @@ Además:
 ./gradlew :app:testDebugUnitTest      # tests JVM
 ./gradlew :app:lint                   # lint (0 errores)
 ./scripts/prepare-jre.sh              # regenera assets/jre.zip
+npm --prefix web install              # dependencias de la UI (una vez)
+npm --prefix web run dev              # diseña la UI en el navegador (datos simulados)
+npm --prefix web run build            # UI -> app/src/main/assets/ui (commiteado)
 ```
+
+La UI vive en `web/` (Vite + React + TypeScript). El resultado de `npm run build` se commitea en
+`app/src/main/assets/ui/`, así que la APK se compila **sin Node**; sólo reconstruye la UI cuando la
+cambies.
 
 > [!IMPORTANT]
 > Un *clone* fresco **no compila ni arranca tal cual**:
@@ -183,13 +199,18 @@ Además:
 
 ```
 app/src/main/java/com/eljuliodev/servidormc/
-├── MainActivity.kt          # UI completa (Compose): lista, panel, consola, ajustes
+├── MainActivity.kt          # Activity: monta el WebView y el botón "atrás"
+├── WebUi.kt                 # sirve assets/ui y hace de puente UI <-> StateFlow
 ├── NomadApplication.kt      # contenedor de los ServerManager
 ├── ServerManager.kt         # proceso del server + StateFlows
 ├── ServerFiles.kt           # eula, server.properties, descarga del server.jar
 ├── ServerProfileStore.kt    # perfiles en filesDir/servers.json
 ├── JreInstaller.kt          # extracción de assets/jre.zip
 └── LanAddress.kt            # IP LAN (Wi-Fi primero, si no cualquier IPv4 privada)
+web/                         # UI: Vite + React + TypeScript + Tailwind (fuente)
+├── src/bridge.ts            # puente con Kotlin + mock para diseñar en el navegador
+├── src/screens.tsx          # lista, panel, consola, ajustes
+app/src/main/assets/ui/      # UI compilada (generada por `npm run build`)
 scripts/prepare-jre.sh       # empaqueta el JRE en assets/jre.zip
 ```
 </details>
