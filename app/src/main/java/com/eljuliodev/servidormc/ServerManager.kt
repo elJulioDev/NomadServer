@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.time.Duration.Companion.seconds
 
 /**
  * Dueño del proceso de un servidor Minecraft y su estado para la UI.
@@ -95,7 +96,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 val p = pb.start()
                 process = p
                 _status.value = Status.Running
-                monitorJob = scope.launch { monitorRam(p.pid()) }
+                monitorJob = scope.launch { monitorRam() }
 
                 p.inputStream.bufferedReader().useLines { lines ->
                     for (line in lines) {
@@ -132,7 +133,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
         }.onFailure { log("No se pudo enviar 'stop': ${it.message}") }
 
         scope.launch {
-            delay(10_000)
+            delay(10.seconds)
             if (p.isAlive) {
                 log("El servidor no respondió; forzando cierre")
                 p.destroy()
@@ -140,18 +141,42 @@ class ServerManager(private val context: Context, private val serverId: String) 
         }
     }
 
-    private suspend fun monitorRam(pid: Long) {
+    private suspend fun monitorRam() {
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-            _ramUsedMb.value = readRssMb(pid)
-            delay(5_000)
+            _ramUsedMb.value = readServerRssMb()
+            delay(5.seconds)
         }
     }
 
-    private fun readRssMb(pid: Long): Int? = runCatching {
+    /**
+     * RSS total (MB) de los procesos del server. El bundler de Minecraft lanza un segundo JVM
+     * hijo, así que se suman todos los que apuntan a este [serverId].
+     *
+     * Se buscan en `/proc` y no con `Process.pid()` ni `ProcessHandle`: esas APIs Java 9 no
+     * resuelven de forma fiable en este proyecto (ver AGENTS.md). Si el sistema no deja leer
+     * `/proc`, el dato simplemente queda en null.
+     */
+    private fun readServerRssMb(): Int? {
+        val pids = serverPids()
+        if (pids.isEmpty()) return null
+        val totalKb = pids.sumOf { readRssKb(it) ?: 0 }
+        return if (totalKb == 0) null else totalKb / 1024
+    }
+
+    private fun serverPids(): List<Long> =
+        File("/proc").listFiles { f -> f.isDirectory && f.name.all(Char::isDigit) }
+            ?.mapNotNull { dir ->
+                val cmdline = runCatching { File(dir, "cmdline").readText() }.getOrDefault("")
+                dir.name.toLongOrNull()?.takeIf { cmdline.contains("/servers/$serverId/") }
+            }
+            .orEmpty()
+
+    private fun readRssKb(pid: Long): Int? = runCatching {
         File("/proc/$pid/status").readLines()
             .firstOrNull { it.startsWith("VmRSS:") }
-            ?.trim()?.split(Regex("\\s+"))
-            ?.get(1)?.toLong()?.div(1024)?.toInt()
+            ?.split(Regex("\\s+"))
+            ?.getOrNull(1)
+            ?.toIntOrNull()
     }.getOrNull()
 
     private val joinRegex = Regex(""": (\S+) joined the game""")
@@ -160,8 +185,8 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private fun log(line: String) {
         Log.i(TAG, line)
         _logs.value = (_logs.value + line).takeLast(MAX_LOG_LINES)
-        joinRegex.find(line)?.let { m -> _players.value = _players.value + m.groupValues[1] }
-        leaveRegex.find(line)?.let { m -> _players.value = _players.value - m.groupValues[1] }
+        joinRegex.find(line)?.let { m -> _players.value += m.groupValues[1] }
+        leaveRegex.find(line)?.let { m -> _players.value -= m.groupValues[1] }
     }
 
     companion object {
