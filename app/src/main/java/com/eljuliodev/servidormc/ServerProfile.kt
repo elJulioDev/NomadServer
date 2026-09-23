@@ -5,4 +5,5 @@ data class ServerProfile(
     val id: String,
     val name: String,
     val ramMb: Int,
+    val maxPlayers: Int = 20,
 )

@@ -21,12 +21,13 @@ object ServerProfileStore {
                 id = o.getString("id"),
                 name = o.getString("name"),
                 ramMb = o.getInt("ramMb"),
+                maxPlayers = o.optInt("maxPlayers", 20),
             )
         }
     }
 
-    fun add(context: Context, name: String, ramMb: Int): ServerProfile {
-        val profile = ServerProfile(id = UUID.randomUUID().toString(), name = name, ramMb = ramMb)
+    fun add(context: Context, name: String, ramMb: Int, maxPlayers: Int = 20): ServerProfile {
+        val profile = ServerProfile(id = UUID.randomUUID().toString(), name = name, ramMb = ramMb, maxPlayers = maxPlayers)
         save(context, list(context) + profile)
         return profile
     }
@@ -43,6 +44,7 @@ object ServerProfileStore {
                     put("id", p.id)
                     put("name", p.name)
                     put("ramMb", p.ramMb)
+                    put("maxPlayers", p.maxPlayers)
                 },
             )
         }

@@ -20,6 +20,7 @@ object ServerFiles {
         dir: File,
         viewDistance: Int = 6,
         simulationDistance: Int = 4,
+        maxPlayers: Int = 20,
         log: (String) -> Unit = {},
     ) {
         val file = File(dir, "server.properties")
@@ -31,10 +32,11 @@ object ServerFiles {
             |enforce-whitelist=false
             |view-distance=$viewDistance
             |simulation-distance=$simulationDistance
+            |max-players=$maxPlayers
             |sync-chunk-writes=false
             |""".trimMargin(),
         )
-        log("server.properties creado (view-distance=$viewDistance, simulation-distance=$simulationDistance)")
+        log("server.properties creado (view-distance=$viewDistance, simulation-distance=$simulationDistance, max-players=$maxPlayers)")
     }
 
     /** Downloads the latest vanilla `server.jar` if it isn't there yet and returns it. */
@@ -42,24 +44,29 @@ object ServerFiles {
         val jar = File(dir, "server.jar")
         if (jar.exists()) return jar
         log("Consultando la última versión de Minecraft…")
-        val versionUrl = latestReleaseVersionUrl()
+        val (versionId, versionUrl) = latestRelease()
         val serverUrl = JSONObject(fetch(versionUrl))
             .getJSONObject("downloads")
             .getJSONObject("server")
             .getString("url")
         log("Descargando server.jar…")
         download(serverUrl, jar)
+        File(dir, "version.txt").writeText(versionId)
         log("server.jar listo (${jar.length() / 1_048_576} MB)")
         return jar
     }
 
-    private fun latestReleaseVersionUrl(): String {
+    /** Versión de Minecraft instalada en [dir] (leída de `version.txt`), o null si aún no se descarga. */
+    fun installedVersion(dir: File): String? =
+        File(dir, "version.txt").takeIf { it.exists() }?.readText()?.trim()
+
+    private fun latestRelease(): Pair<String, String> {
         val manifest = JSONObject(fetch(VERSION_MANIFEST))
         val latest = manifest.getJSONObject("latest").getString("release")
         val versions = manifest.getJSONArray("versions")
         for (i in 0 until versions.length()) {
             val version = versions.getJSONObject(i)
-            if (version.getString("id") == latest) return version.getString("url")
+            if (version.getString("id") == latest) return latest to version.getString("url")
         }
         error("Versión $latest no encontrada en el manifest")
     }

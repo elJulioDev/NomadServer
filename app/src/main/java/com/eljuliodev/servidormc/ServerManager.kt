@@ -57,7 +57,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private val javaBinary: File
         get() = File(context.filesDir, "jre/bin/java")
 
-    fun start(ramMb: Int) {
+    fun start(ramMb: Int, maxPlayers: Int = 20) {
         if (_status.value == Status.Starting || _status.value == Status.Running) return
         requestedStop = false
         _status.value = Status.Starting
@@ -74,7 +74,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 }
                 val dir = serverDir
                 ServerFiles.ensureEula(dir)
-                ServerFiles.ensureProperties(dir, log = ::log)
+                ServerFiles.ensureProperties(dir, maxPlayers = maxPlayers, log = ::log)
                 val jar = ServerFiles.ensureServerJar(dir, log = ::log)
 
                 val pb = ProcessBuilder(
