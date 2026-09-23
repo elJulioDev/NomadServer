@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
@@ -274,7 +275,6 @@ private fun ServerDetailScreen(profile: ServerProfile, manager: ServerManager, o
     val status by manager.status.collectAsState()
     val logs by manager.logs.collectAsState()
     val running = status == ServerManager.Status.Running
-    val busy = status == ServerManager.Status.Starting || status == ServerManager.Status.Stopping
 
     Scaffold(
         topBar = {
@@ -303,9 +303,8 @@ private fun ServerDetailScreen(profile: ServerProfile, manager: ServerManager, o
             Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                 when (dest) {
                     Dest.Panel -> PanelScreen(
-                        status = status,
-                        running = running,
-                        busy = busy,
+                        manager = manager,
+                        ramMb = ramMb,
                         onToggle = {
                             if (running || status == ServerManager.Status.Starting) manager.stop()
                             else manager.start(ramMb)
@@ -329,18 +328,28 @@ private val ServerManager.Status.label: String
     }
 
 @Composable
-private fun PanelScreen(
-    status: ServerManager.Status,
-    running: Boolean,
-    busy: Boolean,
-    onToggle: () -> Unit,
-) {
+private fun PanelScreen(manager: ServerManager, ramMb: Int, onToggle: () -> Unit) {
+    val status by manager.status.collectAsState()
+    val ramUsedMb by manager.ramUsedMb.collectAsState()
+    val players by manager.players.collectAsState()
+    val running = status == ServerManager.Status.Running
+    val busy = status == ServerManager.Status.Starting || status == ServerManager.Status.Stopping
+
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         StatusCard(status)
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatCard(
+                modifier = Modifier.weight(1f),
+                label = "RAM",
+                value = "${ramUsedMb?.toString() ?: "—"} / $ramMb MB",
+            )
+            StatCard(modifier = Modifier.weight(1f), label = "Jugadores", value = "${players.size}")
+        }
+        Spacer(Modifier.height(24.dp))
         FilledIconButton(
             onClick = onToggle,
             enabled = !busy,
@@ -371,6 +380,33 @@ private fun PanelScreen(
         )
         Spacer(Modifier.height(32.dp))
         ConnectionCard(running)
+        if (players.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            PlayersCard(players)
+        }
+    }
+}
+
+@Composable
+private fun StatCard(modifier: Modifier = Modifier, label: String, value: String) {
+    Card(modifier = modifier) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(value, style = MaterialTheme.typography.titleLarge)
+            Text(label, style = MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+@Composable
+private fun PlayersCard(players: Set<String>) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text("Conectados", style = MaterialTheme.typography.titleMedium)
+            players.forEach { name -> Text(name, style = MaterialTheme.typography.bodyMedium) }
+        }
     }
 }
 
@@ -403,21 +439,48 @@ private fun StatusCard(status: ServerManager.Status) {
 
 @Composable
 private fun ConnectionCard(running: Boolean) {
+    val context = LocalContext.current
     val ip = remember(running) { if (running) LanAddress.get() else null }
+    val address = ip?.let { "$it:25565" }
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Conexión", style = MaterialTheme.typography.titleMedium)
-            LabeledValue("LAN", ip?.let { "$it:25565" } ?: "—")
+            LabeledValue(
+                label = "LAN",
+                value = address ?: "—",
+                onCopy = address?.let {
+                    {
+                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("NomadServer", it))
+                        Toast.makeText(context, "IP copiada", Toast.LENGTH_SHORT).show()
+                    }
+                },
+            )
             LabeledValue("Playit.gg", "Desactivado")
         }
     }
 }
 
 @Composable
-private fun LabeledValue(label: String, value: String) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+private fun LabeledValue(label: String, value: String, onCopy: (() -> Unit)? = null) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
         Text(label, style = MaterialTheme.typography.bodyMedium)
-        Text(value, style = MaterialTheme.typography.bodyMedium)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(value, style = MaterialTheme.typography.bodyMedium)
+            if (onCopy != null) {
+                IconButton(onClick = onCopy, modifier = Modifier.size(28.dp)) {
+                    Icon(
+                        Icons.Default.ContentCopy,
+                        contentDescription = "Copiar",
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+        }
     }
 }
 

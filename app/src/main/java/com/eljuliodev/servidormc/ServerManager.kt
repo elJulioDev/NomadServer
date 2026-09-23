@@ -4,11 +4,13 @@ import android.content.Context
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -33,7 +35,16 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private val _logs = MutableStateFlow<List<String>>(emptyList())
     val logs: StateFlow<List<String>> = _logs.asStateFlow()
 
+    /** RAM residente real del proceso (MB), null si no se pudo leer o está apagado. */
+    private val _ramUsedMb = MutableStateFlow<Int?>(null)
+    val ramUsedMb: StateFlow<Int?> = _ramUsedMb.asStateFlow()
+
+    /** Jugadores actualmente conectados, deducido de las líneas "joined/left the game". */
+    private val _players = MutableStateFlow<Set<String>>(emptySet())
+    val players: StateFlow<Set<String>> = _players.asStateFlow()
+
     private var process: Process? = null
+    private var monitorJob: Job? = null
 
     @Volatile
     private var requestedStop = false
@@ -49,6 +60,8 @@ class ServerManager(private val context: Context, private val serverId: String) 
         if (_status.value == Status.Starting || _status.value == Status.Running) return
         requestedStop = false
         _status.value = Status.Starting
+        _players.value = emptySet()
+        _ramUsedMb.value = null
         scope.launch {
             try {
                 // Extrae el JRE en el primer arranque (tarda unos segundos).
@@ -82,6 +95,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 val p = pb.start()
                 process = p
                 _status.value = Status.Running
+                monitorJob = scope.launch { monitorRam(p.pid()) }
 
                 p.inputStream.bufferedReader().useLines { lines ->
                     for (line in lines) {
@@ -95,6 +109,10 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 log("Error: ${t.javaClass.simpleName}: ${t.message}")
                 _status.value = Status.Error
             } finally {
+                monitorJob?.cancel()
+                monitorJob = null
+                _ramUsedMb.value = null
+                _players.value = emptySet()
                 process = null
             }
         }
@@ -122,9 +140,28 @@ class ServerManager(private val context: Context, private val serverId: String) 
         }
     }
 
+    private suspend fun monitorRam(pid: Long) {
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            _ramUsedMb.value = readRssMb(pid)
+            delay(5_000)
+        }
+    }
+
+    private fun readRssMb(pid: Long): Int? = runCatching {
+        File("/proc/$pid/status").readLines()
+            .firstOrNull { it.startsWith("VmRSS:") }
+            ?.trim()?.split(Regex("\\s+"))
+            ?.get(1)?.toLong()?.div(1024)?.toInt()
+    }.getOrNull()
+
+    private val joinRegex = Regex(""": (\S+) joined the game""")
+    private val leaveRegex = Regex(""": (\S+) left the game""")
+
     private fun log(line: String) {
         Log.i(TAG, line)
         _logs.value = (_logs.value + line).takeLast(MAX_LOG_LINES)
+        joinRegex.find(line)?.let { m -> _players.value = _players.value + m.groupValues[1] }
+        leaveRegex.find(line)?.let { m -> _players.value = _players.value - m.groupValues[1] }
     }
 
     companion object {
