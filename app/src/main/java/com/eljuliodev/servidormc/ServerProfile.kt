@@ -6,4 +6,6 @@ data class ServerProfile(
     val name: String,
     val ramMb: Int,
     val maxPlayers: Int = 20,
+    /** Versión de Minecraft elegida al crear (null = última release). */
+    val mcVersion: String? = null,
 )

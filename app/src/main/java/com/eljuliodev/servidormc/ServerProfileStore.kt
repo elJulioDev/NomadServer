@@ -22,12 +22,25 @@ object ServerProfileStore {
                 name = o.getString("name"),
                 ramMb = o.getInt("ramMb"),
                 maxPlayers = o.optInt("maxPlayers", 20),
+                mcVersion = o.optString("mcVersion").takeIf { it.isNotEmpty() },
             )
         }
     }
 
-    fun add(context: Context, name: String, ramMb: Int, maxPlayers: Int = 20): ServerProfile {
-        val profile = ServerProfile(id = UUID.randomUUID().toString(), name = name, ramMb = ramMb, maxPlayers = maxPlayers)
+    fun add(
+        context: Context,
+        name: String,
+        ramMb: Int,
+        maxPlayers: Int = 20,
+        mcVersion: String? = null,
+    ): ServerProfile {
+        val profile = ServerProfile(
+            id = UUID.randomUUID().toString(),
+            name = name,
+            ramMb = ramMb,
+            maxPlayers = maxPlayers,
+            mcVersion = mcVersion,
+        )
         save(context, list(context) + profile)
         return profile
     }
@@ -55,6 +68,7 @@ object ServerProfileStore {
                     put("name", p.name)
                     put("ramMb", p.ramMb)
                     put("maxPlayers", p.maxPlayers)
+                    put("mcVersion", p.mcVersion ?: "")
                 },
             )
         }

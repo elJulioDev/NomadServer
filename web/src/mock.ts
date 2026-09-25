@@ -1,4 +1,22 @@
-import { DEFAULT_SETTINGS, type NomadBridge, type ServerSettings, type ServerSummary, type Snapshot } from './types'
+import {
+  DEFAULT_SETTINGS,
+  type NomadBridge,
+  type ServerSettings,
+  type ServerSummary,
+  type Snapshot,
+  type VersionOption,
+} from './types'
+
+const MOCK_VERSIONS: VersionOption[] = [
+  { id: '1.21.8', type: 'release', releaseTime: '' },
+  { id: '1.21.4', type: 'release', releaseTime: '' },
+  { id: '1.21.1', type: 'release', releaseTime: '' },
+  { id: '1.20.6', type: 'release', releaseTime: '' },
+  { id: '1.20.1', type: 'release', releaseTime: '' },
+  { id: '1.19.4', type: 'release', releaseTime: '' },
+  { id: '1.18.2', type: 'release', releaseTime: '' },
+  { id: '1.17.1', type: 'release', releaseTime: '' },
+]
 
 const SAMPLE_LINES = [
   'Preparing level "world"',
@@ -22,11 +40,14 @@ export function createMock(): NomadBridge {
     { id: 'demo-creativo', name: 'Creativo', ramMb: 4096, maxPlayers: 10, status: 'Stopped', players: [], version: null, iconVersion: null },
   ]
   const settings: Record<string, ServerSettings> = {}
+  const ops: Record<string, string[]> = {}
+  const whitelist: Record<string, string[]> = {}
   const logs: Record<string, string[]> = {}
   const ram: Record<string, number | null> = {}
   const progress: Record<string, number> = {}
   const autoStop: Record<string, number | null> = {}
   const timers = new Map<string, number>()
+  let versions: VersionOption[] | undefined
   let activeId: string | null = null
   let lastLogId: string | null = null
   let lastLogCount = 0
@@ -48,6 +69,8 @@ export function createMock(): NomadBridge {
         tps: active.status === 'Running' ? 20 : null,
         startProgress: active.status === 'Running' ? 100 : (progress[active.id] ?? 0),
         autoStopSeconds: autoStop[active.id] ?? null,
+        ops: ops[active.id] ?? [],
+        whitelist: whitelist[active.id] ?? [],
       }
       lastLogId = active.id
       lastLogCount = list.length
@@ -56,6 +79,7 @@ export function createMock(): NomadBridge {
       lastLogId = null
       lastLogCount = 0
     }
+    if (versions) snapshot.versions = versions
     window.onNomadState?.(JSON.stringify(snapshot))
   }
 
@@ -121,7 +145,7 @@ export function createMock(): NomadBridge {
       activeId = null
       emit()
     },
-    createServer: (name, ramMb, maxPlayers, settingsJson, _iconDataUrl) => {
+    createServer: (name, ramMb, maxPlayers, settingsJson, _iconDataUrl, mcVersion) => {
       const created: ServerSummary = {
         id: `demo-${randomSuffix()}`,
         name,
@@ -129,7 +153,7 @@ export function createMock(): NomadBridge {
         maxPlayers,
         status: 'Stopped',
         players: [],
-        version: null,
+        version: mcVersion || null,
         iconVersion: null,
       }
       servers.push(created)
@@ -159,6 +183,48 @@ export function createMock(): NomadBridge {
     },
     // El mock no sirve PNGs; el icono se previsualiza localmente al elegirlo.
     setServerIcon: () => {},
+    fetchVersions: () => {
+      versions = MOCK_VERSIONS
+      emit()
+    },
+    playerAction: (id, action, name) => {
+      const list = (ops[id] ??= [])
+      const white = (whitelist[id] ??= [])
+      switch (action) {
+        case 'op':
+          if (!list.includes(name)) list.push(name)
+          push(id, `Made ${name} a server operator`)
+          break
+        case 'deop':
+          ops[id] = list.filter((n) => n !== name)
+          push(id, `Made ${name} no longer a server operator`)
+          break
+        case 'kick':
+          push(id, `Kicked ${name}`)
+          break
+        case 'ban':
+          push(id, `Banned ${name}`)
+          break
+        case 'pardon':
+          push(id, `Unbanned ${name}`)
+          break
+        case 'whitelistAdd':
+          if (!white.includes(name)) white.push(name)
+          push(id, `Added ${name} to the whitelist`)
+          break
+        case 'whitelistRemove':
+          whitelist[id] = white.filter((n) => n !== name)
+          push(id, `Removed ${name} from the whitelist`)
+          break
+      }
+      emit()
+    },
+    setWhitelistEnabled: (id, enabled) => {
+      const current = settings[id] ?? DEFAULT_SETTINGS
+      settings[id] = { ...current, whitelist: enabled }
+      push(id, `Whitelist ${enabled ? 'enabled' : 'disabled'}`)
+      emit()
+    },
     extendStartTimer: (id) => {
       if (autoStop[id] != null) autoStop[id] = (autoStop[id] ?? 0) + 60
       emit()

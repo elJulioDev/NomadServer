@@ -52,4 +52,14 @@ class ServerFilesTest {
         assertTrue(text.contains("sync-chunk-writes=false"))
         assertFalse(text.contains("view-distance=6"))
     }
+
+    @Test
+    fun `version comparison picks only supported releases`() {
+        assertTrue(ServerFiles.isAtLeast("1.17", "1.17"))
+        assertTrue(ServerFiles.isAtLeast("1.21.4", "1.17"))
+        assertTrue(ServerFiles.isAtLeast("2.0", "1.17"))
+        assertFalse(ServerFiles.isAtLeast("1.16.5", "1.17"))
+        assertFalse(ServerFiles.isAtLeast("1.8.9", "1.17"))
+        assertFalse(ServerFiles.isAtLeast("24w14a", "1.17"))
+    }
 }

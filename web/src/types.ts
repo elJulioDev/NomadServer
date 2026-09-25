@@ -1,6 +1,13 @@
 export type Status = 'Stopped' | 'Starting' | 'Running' | 'Stopping' | 'Error'
 
-export type Tab = 'panel' | 'console' | 'settings'
+export type Tab = 'panel' | 'console' | 'players' | 'settings'
+
+/** Una versión vanilla del manifest de Mojang. */
+export interface VersionOption {
+  id: string
+  type: string
+  releaseTime: string
+}
 
 export type Gamemode = 'survival' | 'creative' | 'spectator'
 
@@ -57,12 +64,18 @@ export interface ActiveServer {
   startProgress: number
   /** Segundos hasta el auto-apagado por inactividad; null si no aplica. */
   autoStopSeconds: number | null
+  /** Nombres con OP (de `ops.json`). */
+  ops: string[]
+  /** Nombres en la lista blanca (de `whitelist.json`). */
+  whitelist: string[]
 }
 
 export interface Snapshot {
   servers: ServerSummary[]
   active: ActiveServer | null
   lanAddress: string | null
+  /** Versiones del manifest, sólo tras `fetchVersions()`. */
+  versions?: VersionOption[]
 }
 
 /** Lo que Kotlin expone como `window.NomadBridge`. */
@@ -70,8 +83,20 @@ export interface NomadBridge {
   ready(): void
   openServer(id: string): void
   closeServer(): void
-  /** `settingsJson` es un `ServerSettings`; `iconDataUrl` un data URL o `''`. */
-  createServer(name: string, ramMb: number, maxPlayers: number, settingsJson: string, iconDataUrl: string): void
+  /** `settingsJson` es un `ServerSettings`; `iconDataUrl` un data URL o `''`; `mcVersion` una release. */
+  createServer(
+    name: string,
+    ramMb: number,
+    maxPlayers: number,
+    settingsJson: string,
+    iconDataUrl: string,
+    mcVersion: string,
+  ): void
+  /** Trae el manifest de Mojang (se entrega en `snapshot.versions`). */
+  fetchVersions(): void
+  /** `op` | `deop` | `kick` | `ban` | `pardon` | `whitelistAdd` | `whitelistRemove`. */
+  playerAction(id: string, action: string, name: string): void
+  setWhitelistEnabled(id: string, enabled: boolean): void
   deleteServer(id: string): void
   startServer(id: string, ramMb: number, maxPlayers: number): void
   stopServer(id: string): void

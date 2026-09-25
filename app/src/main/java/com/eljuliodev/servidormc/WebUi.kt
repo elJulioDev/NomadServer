@@ -70,6 +70,14 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
     /** Ajustes por servidor; se leen una vez y se refrescan al guardarlos. */
     private val settingsCache = mutableMapOf<String, ServerSettings>()
 
+    /** Versiones del manifest traídas por `fetchVersions` (null = todavía no pedidas). */
+    private var versions: List<McVersion>? = null
+
+    private data class PlayersInfo(val ops: List<String>, val whitelist: List<String>)
+
+    /** `ops.json` / `whitelist.json` por servidor; se invalidan al abrir y tras cada acción. */
+    private val playersCache = mutableMapOf<String, PlayersInfo>()
+
     /** Selección de imagen para `<input type="file">` (icono del servidor). */
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private val pickImage = (activity as? ComponentActivity)?.registerForActivityResult(
@@ -185,8 +193,55 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         @JavascriptInterface
         fun openServer(id: String) = onMain {
             activeId = id
+            playersCache.remove(id)
             observeActive()
             schedulePush()
+        }
+
+        @JavascriptInterface
+        fun fetchVersions() = onMain {
+            scope.launch {
+                val list = withContext(Dispatchers.IO) {
+                    runCatching { ServerFiles.listVersions() }.getOrDefault(emptyList())
+                }
+                versions = list
+                schedulePush()
+            }
+        }
+
+        /** Acciones sobre jugadores: van por consola, así que requieren el server encendido. */
+        @JavascriptInterface
+        fun playerAction(id: String, action: String, name: String) = onMain {
+            val command = when (action) {
+                "op" -> "op $name"
+                "deop" -> "deop $name"
+                "kick" -> "kick $name"
+                "ban" -> "ban $name"
+                "pardon" -> "pardon $name"
+                "whitelistAdd" -> "whitelist add $name"
+                "whitelistRemove" -> "whitelist remove $name"
+                else -> null
+            } ?: return@onMain
+            app.managerFor(id).sendCommand(command)
+            // Minecraft escribe los JSON al procesar el comando: refrescar con un margen.
+            scope.launch {
+                delay(600)
+                playersCache.remove(id)
+                schedulePush()
+            }
+        }
+
+        @JavascriptInterface
+        fun setWhitelistEnabled(id: String, enabled: Boolean) = onMain {
+            val settings = settingsOf(id).copy(whitelist = enabled)
+            settingsCache[id] = settings
+            app.managerFor(id).sendCommand(if (enabled) "whitelist on" else "whitelist off")
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    ServerSettings.write(File(activity.filesDir, "servers/$id"), settings)
+                }
+                schedulePush()
+            }
         }
 
         @JavascriptInterface
@@ -203,13 +258,20 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             maxPlayers: Int,
             settingsJson: String,
             iconDataUrl: String,
+            mcVersion: String,
         ) = onMain {
             val settings = settingsJson
                 .takeIf { it.isNotEmpty() }
                 ?.let { json -> runCatching { ServerSettings.fromJson(JSONObject(json)) }.getOrNull() }
             scope.launch {
                 val profile = withContext(Dispatchers.IO) {
-                    val created = ServerProfileStore.add(activity, name, ramMb, maxPlayers)
+                    val created = ServerProfileStore.add(
+                        activity,
+                        name,
+                        ramMb,
+                        maxPlayers,
+                        mcVersion.ifEmpty { null },
+                    )
                     val dir = File(activity.filesDir, "servers/${created.id}")
                     if (iconDataUrl.isNotEmpty()) {
                         runCatching { ServerSettings.saveIcon(dir, iconDataUrl) }
@@ -230,6 +292,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             scope.launch {
                 withContext(Dispatchers.IO) { ServerProfileStore.remove(activity, id) }
                 settingsCache.remove(id)
+                playersCache.remove(id)
                 if (activeId == id) activeId = null
                 reload()
                 observeActive()
@@ -267,7 +330,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         fun startServer(id: String, ramMb: Int, maxPlayers: Int) = onMain {
             scope.launch {
                 withContext(Dispatchers.IO) { ServerProfileStore.setRamMb(activity, id, ramMb) }
-                app.managerFor(id).start(ramMb, maxPlayers)
+                app.managerFor(id).start(ramMb, maxPlayers, mcVersionOf(id))
                 reload()
                 schedulePush()
             }
@@ -281,7 +344,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
         @JavascriptInterface
         fun restartServer(id: String, ramMb: Int, maxPlayers: Int) = onMain {
-            app.managerFor(id).restart(ramMb, maxPlayers)
+            app.managerFor(id).restart(ramMb, maxPlayers, mcVersionOf(id))
         }
 
         @JavascriptInterface
@@ -358,7 +421,25 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             )
         }
 
-        val root = JSONObject().apply { put("servers", servers) }
+        val root = JSONObject().apply {
+            put("servers", servers)
+            versions?.let { list ->
+                put(
+                    "versions",
+                    JSONArray().apply {
+                        list.forEach { version ->
+                            put(
+                                JSONObject().apply {
+                                    put("id", version.id)
+                                    put("type", version.type)
+                                    put("releaseTime", version.releaseTime)
+                                },
+                            )
+                        }
+                    },
+                )
+            }
+        }
         val id = activeId
         if (id == null) {
             lastLogServer = null
@@ -373,6 +454,10 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                     put("status", manager.status.value.name)
                     put("ramUsedMb", manager.ramUsedMb.value ?: JSONObject.NULL)
                     put("players", JSONArray(manager.players.value.toList()))
+                    playersOf(id).let { info ->
+                        put("ops", JSONArray(info.ops))
+                        put("whitelist", JSONArray(info.whitelist))
+                    }
                     put("tps", manager.tps.value ?: JSONObject.NULL)
                     put("startProgress", manager.startProgress.value)
                     put("autoStopSeconds", manager.autoStopSeconds.value ?: JSONObject.NULL)
@@ -405,6 +490,13 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
     private fun settingsOf(id: String): ServerSettings =
         settingsCache.getOrPut(id) { ServerSettings.read(File(activity.filesDir, "servers/$id")) }
+
+    private fun mcVersionOf(id: String): String? = profiles.find { it.id == id }?.mcVersion
+
+    private fun playersOf(id: String): PlayersInfo = playersCache.getOrPut(id) {
+        val dir = File(activity.filesDir, "servers/$id")
+        PlayersInfo(PlayersStore.ops(dir), PlayersStore.whitelist(dir))
+    }
 
     /** mtime del icono (0/null si no existe); sirve para invalidar la caché del `<img>` en JS. */
     private fun iconVersionOf(id: String): Long? {

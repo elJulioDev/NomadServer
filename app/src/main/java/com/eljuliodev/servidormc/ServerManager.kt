@@ -85,7 +85,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private val javaBinary: File
         get() = File(context.filesDir, "jre/bin/java")
 
-    fun start(ramMb: Int, maxPlayers: Int = 20) {
+    fun start(ramMb: Int, maxPlayers: Int = 20, mcVersion: String? = null) {
         if (_status.value == Status.Starting || _status.value == Status.Running) return
         requestedStop = false
         _status.value = Status.Starting
@@ -106,7 +106,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 val dir = serverDir
                 ServerFiles.ensureEula(dir)
                 ServerFiles.ensureProperties(dir, maxPlayers = maxPlayers, log = ::log)
-                val jar = ServerFiles.ensureServerJar(dir, log = ::log)
+                val jar = ServerFiles.ensureServerJar(dir, mcVersion, log = ::log)
 
                 val pb = ProcessBuilder(
                     javaBinary.absolutePath,
@@ -153,16 +153,16 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 // Un reinicio pendiente arranca de nuevo al terminar el proceso.
                 if (pendingRestart) {
                     pendingRestart = false
-                    start(ramMb, maxPlayers)
+                    start(ramMb, maxPlayers, mcVersion)
                 }
             }
         }
     }
 
     /** Apaga y vuelve a encender (botón "Reiniciar"); si está apagado, sólo enciende. */
-    fun restart(ramMb: Int, maxPlayers: Int = 20) {
+    fun restart(ramMb: Int, maxPlayers: Int = 20, mcVersion: String? = null) {
         if (_status.value != Status.Running && _status.value != Status.Starting) {
-            start(ramMb, maxPlayers)
+            start(ramMb, maxPlayers, mcVersion)
             return
         }
         pendingRestart = true

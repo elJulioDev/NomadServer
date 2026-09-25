@@ -37,6 +37,7 @@ import {
   type ServerSummary,
   type Status,
   type Tab,
+  type VersionOption,
 } from './types'
 
 const RAM_MIN = 1024
@@ -59,13 +60,21 @@ function Backdrop() {
 
 export function ServersScreen({
   servers,
+  versions,
   onOpen,
   onCreate,
   onDelete,
 }: {
   servers: ServerSummary[]
+  versions?: VersionOption[]
   onOpen: (id: string, tab: Tab) => void
-  onCreate: (name: string, ramMb: number, settings: ServerSettings, icon: string | null) => void
+  onCreate: (
+    name: string,
+    ramMb: number,
+    settings: ServerSettings,
+    icon: string | null,
+    mcVersion: string,
+  ) => void
   onDelete: (id: string) => void
 }) {
   const [creating, setCreating] = useState(false)
@@ -129,9 +138,10 @@ export function ServersScreen({
 
       {creating && (
         <CreateServerDialog
+          versions={versions}
           onDismiss={() => setCreating(false)}
-          onCreate={(name, ramMb, settings, icon) => {
-            onCreate(name, ramMb, settings, icon)
+          onCreate={(name, ramMb, settings, icon, mcVersion) => {
+            onCreate(name, ramMb, settings, icon, mcVersion)
             setCreating(false)
           }}
         />
@@ -209,6 +219,7 @@ function ServerRow({
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'panel', label: 'Panel', icon: 'home' },
   { id: 'console', label: 'Consola', icon: 'terminal' },
+  { id: 'players', label: 'Jugadores', icon: 'users' },
   { id: 'settings', label: 'Ajustes', icon: 'sliders' },
 ]
 
@@ -273,6 +284,15 @@ export function DetailScreen({
             />
           )}
           {tab === 'console' && <ConsoleTab logs={logs} status={status} onCommand={onCommand} />}
+          {tab === 'players' && (
+            <PlayersTab
+              active={active}
+              status={status}
+              settings={active?.settings ?? DEFAULT_SETTINGS}
+              onAction={(action, name) => bridge.playerAction(server.id, action, name)}
+              onWhitelistEnabled={(enabled) => bridge.setWhitelistEnabled(server.id, enabled)}
+            />
+          )}
           {tab === 'settings' && (
             <SettingsTab
               key={server.id}
@@ -288,21 +308,175 @@ export function DetailScreen({
         </div>
       </div>
 
-      <nav className="absolute bottom-[calc(0.5rem+env(safe-area-inset-bottom,0px))] left-1/2 z-30 flex -translate-x-1/2 items-center gap-1 rounded-xl border border-border bg-popover p-1 shadow-md ring-1 ring-foreground/10">
+      <nav className="absolute bottom-[calc(1.25rem+env(safe-area-inset-bottom,0px))] left-1/2 z-30 flex max-w-[calc(100%-1rem)] -translate-x-1/2 items-center gap-0.5 overflow-x-auto rounded-xl border border-border bg-popover p-1 shadow-md ring-1 ring-foreground/10">
         {TABS.map((item) => (
           <Button
             key={item.id}
             variant={tab === item.id ? 'secondary' : 'ghost'}
-            size="sm"
+            size="icon"
             onClick={() => onTabChange(item.id)}
-            className="gap-1.5"
+            aria-label={item.label}
+            title={item.label}
           >
             <Icon name={item.icon} className="size-4" />
-            {item.label}
           </Button>
         ))}
       </nav>
     </div>
+  )
+}
+
+/** Cabeza del jugador (mc-heads) con respaldo local a las iniciales si falla la red. */
+function PlayerHead({ name, className = 'size-8' }: { name: string; className?: string }) {
+  const [failed, setFailed] = useState(false)
+  return (
+    <div
+      className={cn(
+        'relative grid shrink-0 place-items-center overflow-hidden rounded-sm border border-muted-foreground/15 bg-muted',
+        className,
+      )}
+    >
+      <span className="text-[10px] font-medium text-muted-foreground">{name.slice(0, 2).toUpperCase()}</span>
+      {!failed && (
+        <img
+          src={`https://mc-heads.net/avatar/${encodeURIComponent(name)}/40`}
+          alt=""
+          loading="lazy"
+          className="absolute inset-0 size-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </div>
+  )
+}
+
+function PlayersTab({
+  active,
+  status,
+  settings,
+  onAction,
+  onWhitelistEnabled,
+}: {
+  active: ActiveServer | null
+  status: Status
+  settings: ServerSettings
+  onAction: (action: string, name: string) => void
+  onWhitelistEnabled: (enabled: boolean) => void
+}) {
+  const running = status === 'Running'
+  const players = active?.players ?? []
+  const ops = new Set((active?.ops ?? []).map((name) => name.toLowerCase()))
+  const whitelist = active?.whitelist ?? []
+  const [name, setName] = useState('')
+  const [pending, setPending] = useState<{ action: 'kick' | 'ban'; name: string } | null>(null)
+
+  const addToWhitelist = () => {
+    const value = name.trim()
+    if (!value) return
+    onAction('whitelistAdd', value)
+    setName('')
+  }
+
+  return (
+    <>
+      <Panel className="screen-line-top-none">
+        <PanelHeader>
+          <PanelTitle className="text-lg">En línea</PanelTitle>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-4">
+          {!running ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">
+              Enciende el servidor para gestionar jugadores.
+            </p>
+          ) : players.length === 0 ? (
+            <p className="py-6 text-center text-sm text-muted-foreground">Nadie conectado.</p>
+          ) : (
+            players.map((player) => {
+              const isOp = ops.has(player.toLowerCase())
+              return (
+                <div key={player} className="flex items-center gap-3">
+                  <PlayerHead name={player} />
+                  <span className="min-w-0 flex-1 truncate text-sm">{player}</span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <IconButton
+                      icon="shield"
+                      label={isOp ? `Quitar OP a ${player}` : `Dar OP a ${player}`}
+                      onClick={() => onAction(isOp ? 'deop' : 'op', player)}
+                      className={isOp ? 'text-success' : ''}
+                    />
+                    <IconButton icon="userMinus" label={`Kickear a ${player}`} onClick={() => setPending({ action: 'kick', name: player })} />
+                    <IconButton icon="ban" label={`Banear a ${player}`} onClick={() => setPending({ action: 'ban', name: player })} />
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </PanelContent>
+      </Panel>
+
+      <div className="stripe-divider border-x border-line" />
+
+      <Panel className="screen-line-top-none">
+        <PanelHeader>
+          <PanelTitle className="text-lg">Lista blanca</PanelTitle>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-4">
+          <SettingRow label="Activar lista blanca" hint="Solo entran los jugadores añadidos">
+            <Switch checked={settings.whitelist} onChange={onWhitelistEnabled} label="Lista blanca" />
+          </SettingRow>
+          <Separator />
+          <div className="flex items-center gap-2">
+            <input
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              placeholder="Nombre del jugador"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              className={cn(INPUT, 'min-w-0 flex-1')}
+            />
+            <Button variant="outline" size="sm" disabled={!name.trim()} onClick={addToWhitelist}>
+              <Icon name="plus" className="size-3.5" />
+              Añadir
+            </Button>
+          </div>
+          {whitelist.length === 0 ? (
+            <p className="text-xs text-muted-foreground">La lista blanca está vacía.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {whitelist.map((entry) => (
+                <div key={entry} className="flex items-center gap-3">
+                  <PlayerHead name={entry} />
+                  <span className="min-w-0 flex-1 truncate text-sm">{entry}</span>
+                  <IconButton
+                    icon="x"
+                    label={`Quitar a ${entry} de la lista`}
+                    onClick={() => onAction('whitelistRemove', entry)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </PanelContent>
+      </Panel>
+
+      {pending && (
+        <ConfirmDialog
+          title={`¿${pending.action === 'ban' ? 'Banear' : 'Kickear'} a ${pending.name}?`}
+          body={
+            pending.action === 'ban'
+              ? 'No podrá volver a entrar hasta que lo desbanees.'
+              : 'Podrá volver a entrar enseguida.'
+          }
+          confirm={pending.action === 'ban' ? 'Banear' : 'Kickear'}
+          onConfirm={() => {
+            onAction(pending.action, pending.name)
+            setPending(null)
+          }}
+          onDismiss={() => setPending(null)}
+        />
+      )}
+    </>
   )
 }
 
@@ -1143,16 +1317,34 @@ const INPUT =
   'h-8 w-full rounded-md border border-input bg-transparent px-2.5 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50'
 
 function CreateServerDialog({
+  versions,
   onDismiss,
   onCreate,
 }: {
+  versions?: VersionOption[]
   onDismiss: () => void
-  onCreate: (name: string, ramMb: number, settings: ServerSettings, icon: string | null) => void
+  onCreate: (
+    name: string,
+    ramMb: number,
+    settings: ServerSettings,
+    icon: string | null,
+    mcVersion: string,
+  ) => void
 }) {
   const [name, setName] = useState('')
+  const [mcVersion, setMcVersion] = useState('')
   const [ramMb, setRamMb] = useState(2048)
   const [settings, setSettings] = useState<ServerSettings>(DEFAULT_SETTINGS)
   const [icon, setIcon] = useState<string | null>(null)
+
+  // El manifest viene de Kotlin; llega en el próximo snapshot (`snapshot.versions`).
+  useEffect(() => {
+    bridge.fetchVersions()
+  }, [])
+
+  useEffect(() => {
+    if (!mcVersion && versions && versions.length > 0) setMcVersion(versions[0].id)
+  }, [versions, mcVersion])
 
   return (
     <Modal
@@ -1162,7 +1354,10 @@ function CreateServerDialog({
           <Button variant="ghost" onClick={onDismiss}>
             Cancelar
           </Button>
-          <Button disabled={name.trim().length === 0} onClick={() => onCreate(name.trim(), ramMb, settings, icon)}>
+          <Button
+            disabled={name.trim().length === 0 || mcVersion.length === 0}
+            onClick={() => onCreate(name.trim(), ramMb, settings, icon, mcVersion)}
+          >
             Crear
           </Button>
         </div>
@@ -1179,6 +1374,22 @@ function CreateServerDialog({
           placeholder="Nombre del servidor"
           className={INPUT}
         />
+      </label>
+
+      <label className="flex flex-col gap-2">
+        <span className="text-sm">Versión de Minecraft</span>
+        <Select value={mcVersion} onChange={setMcVersion} className="w-full">
+          {versions && versions.length > 0 ? (
+            versions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {version.id}
+              </option>
+            ))
+          ) : (
+            <option value="">Cargando…</option>
+          )}
+        </Select>
+        <span className="text-xs text-muted-foreground">Solo versiones 1.17 o superiores.</span>
       </label>
 
       <SettingsForm
