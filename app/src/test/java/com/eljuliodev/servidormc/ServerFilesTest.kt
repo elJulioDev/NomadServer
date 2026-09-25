@@ -1,6 +1,7 @@
 package com.eljuliodev.servidormc
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -25,19 +26,30 @@ class ServerFilesTest {
     }
 
     @Test
-    fun `properties get conservative defaults once`() {
+    fun `properties get conservative defaults when the file does not exist`() {
         val dir = temp.newFolder()
         ServerFiles.ensureProperties(dir)
-        val props = File(dir, "server.properties")
-        val text = props.readText()
+        val text = File(dir, "server.properties").readText()
         assertTrue(text.contains("view-distance=6"))
         assertTrue(text.contains("simulation-distance=4"))
         assertTrue(text.contains("sync-chunk-writes=false"))
         // 26.x defaults white-list to true; players couldn't join until this was explicit.
         assertTrue(text.contains("white-list=false"))
+    }
 
-        props.writeText("view-distance=10\n")
+    @Test
+    fun `existing properties keep their values and get the missing defaults`() {
+        val dir = temp.newFolder()
+        val props = File(dir, "server.properties")
+        // Caso real: el server se creó desde la app (server.properties ya escrito con los ajustes
+        // elegidos) y le faltan las claves de rendimiento móvil.
+        props.writeText("motd=Mi server\nview-distance=10\n")
         ServerFiles.ensureProperties(dir)
-        assertEquals("view-distance=10\n", props.readText())
+        val text = props.readText()
+        assertTrue(text.contains("motd=Mi server"))
+        assertTrue(text.contains("view-distance=10"))
+        assertTrue(text.contains("simulation-distance=4"))
+        assertTrue(text.contains("sync-chunk-writes=false"))
+        assertFalse(text.contains("view-distance=6"))
     }
 }

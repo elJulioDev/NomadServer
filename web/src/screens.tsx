@@ -282,6 +282,7 @@ export function DetailScreen({
               iconSrc={server.iconVersion ? serverIconUrl(server.id, server.iconVersion) : null}
               onSave={(value) => bridge.updateSettings(server.id, JSON.stringify(value))}
               onIcon={(dataUrl) => bridge.setServerIcon(server.id, dataUrl)}
+              locked={status !== 'Stopped' && status !== 'Error'}
             />
           )}
         </div>
@@ -840,6 +841,7 @@ function SettingsTab({
   iconSrc,
   onSave,
   onIcon,
+  locked,
 }: {
   ramMb: number
   onRamChange: (ramMb: number) => void
@@ -847,6 +849,8 @@ function SettingsTab({
   iconSrc: string | null
   onSave: (settings: ServerSettings) => void
   onIcon: (dataUrl: string) => void
+  /** El servidor debe estar apagado: Minecraft reescribe server.properties al detenerse. */
+  locked: boolean
 }) {
   // El borrador se inicializa al abrir la pestaña; los pushes del snapshot no lo pisan.
   const [draft, setDraft] = useState(settings)
@@ -854,20 +858,30 @@ function SettingsTab({
 
   return (
     <>
-      <SettingsForm
-        settings={draft}
-        onChange={(patch) => setDraft((prev) => ({ ...prev, ...patch }))}
-        ramMb={ramMb}
-        onRamChange={onRamChange}
-        iconSrc={iconSrc}
-        onIcon={onIcon}
-        variant="panel"
-      />
+      {locked && (
+        <div className="screen-line-bottom flex items-center gap-2 border-x border-line bg-secondary/40 px-4 py-3 text-xs text-muted-foreground">
+          <Icon name="clock" className="size-4 shrink-0" />
+          Detén el servidor para cambiar los ajustes.
+        </div>
+      )}
+
+      {/* `fieldset disabled` apaga todos los controles del formulario de una sola vez. */}
+      <fieldset disabled={locked} className="m-0 min-w-0 border-0 p-0">
+        <SettingsForm
+          settings={draft}
+          onChange={(patch) => setDraft((prev) => ({ ...prev, ...patch }))}
+          ramMb={ramMb}
+          onRamChange={onRamChange}
+          iconSrc={iconSrc}
+          onIcon={onIcon}
+          variant="panel"
+        />
+      </fieldset>
 
       <div className="stripe-divider border-x border-line" />
 
       <div className="p-4">
-        <Button className="h-9 w-full" disabled={!dirty} onClick={() => onSave(draft)}>
+        <Button className="h-9 w-full" disabled={!dirty || locked} onClick={() => onSave(draft)}>
           Guardar cambios
         </Button>
         <p className="mt-2 text-center text-xs text-muted-foreground">

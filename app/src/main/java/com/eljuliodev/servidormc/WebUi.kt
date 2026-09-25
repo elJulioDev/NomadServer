@@ -265,7 +265,12 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
         @JavascriptInterface
         fun startServer(id: String, ramMb: Int, maxPlayers: Int) = onMain {
-            app.managerFor(id).start(ramMb, maxPlayers)
+            scope.launch {
+                withContext(Dispatchers.IO) { ServerProfileStore.setRamMb(activity, id, ramMb) }
+                app.managerFor(id).start(ramMb, maxPlayers)
+                reload()
+                schedulePush()
+            }
         }
 
         @JavascriptInterface

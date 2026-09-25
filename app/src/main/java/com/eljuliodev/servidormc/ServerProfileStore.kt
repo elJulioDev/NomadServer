@@ -41,6 +41,11 @@ object ServerProfileStore {
         save(context, list(context).map { if (it.id == id) it.copy(maxPlayers = maxPlayers) else it })
     }
 
+    /** La RAM elegida en "Ajustes" se guarda al arrancar para que sobreviva a reiniciar la app. */
+    fun setRamMb(context: Context, id: String, ramMb: Int) {
+        save(context, list(context).map { if (it.id == id) it.copy(ramMb = ramMb) else it })
+    }
+
     private fun save(context: Context, profiles: List<ServerProfile>) {
         val array = JSONArray()
         profiles.forEach { p ->

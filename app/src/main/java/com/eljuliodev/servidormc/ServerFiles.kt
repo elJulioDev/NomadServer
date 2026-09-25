@@ -23,20 +23,31 @@ object ServerFiles {
         maxPlayers: Int = 20,
         log: (String) -> Unit = {},
     ) {
-        val file = File(dir, "server.properties")
-        if (file.exists()) return
-        file.writeText(
-            """
-            |motd=NomadServer
-            |white-list=false
-            |enforce-whitelist=false
-            |view-distance=$viewDistance
-            |simulation-distance=$simulationDistance
-            |max-players=$maxPlayers
-            |sync-chunk-writes=false
-            |""".trimMargin(),
+        val defaults = linkedMapOf(
+            "motd" to "NomadServer",
+            "white-list" to "false",
+            "enforce-whitelist" to "false",
+            "view-distance" to viewDistance.toString(),
+            "simulation-distance" to simulationDistance.toString(),
+            "max-players" to maxPlayers.toString(),
+            "sync-chunk-writes" to "false",
         )
-        log("server.properties creado (view-distance=$viewDistance, simulation-distance=$simulationDistance, max-players=$maxPlayers)")
+        val file = File(dir, "server.properties")
+        if (!file.exists()) {
+            dir.mkdirs()
+            file.writeText(defaults.entries.joinToString("\n") { "${it.key}=${it.value}" } + "\n")
+            log("server.properties creado (view-distance=$viewDistance, simulation-distance=$simulationDistance, max-players=$maxPlayers)")
+            return
+        }
+        // El archivo puede existir ya (se guardó al configurar el servidor): se respeta lo que
+        // eligió el usuario y sólo se completan las claves que falten (rendimiento móvil).
+        val lines = file.readLines().toMutableList()
+        val present = lines.map { it.trim().substringBefore('=') }.toSet()
+        val missing = defaults.filterKeys { it !in present }
+        if (missing.isEmpty()) return
+        lines.addAll(missing.map { (key, value) -> "$key=$value" })
+        file.writeText(lines.joinToString("\n") + "\n")
+        log("server.properties: añadidas ${missing.keys.joinToString()} (rendimiento móvil)")
     }
 
     /** Downloads the latest vanilla `server.jar` if it isn't there yet and returns it. */
