@@ -6,13 +6,18 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
+import android.net.Uri
 import android.os.SystemClock
 import android.webkit.JavascriptInterface
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.webkit.WebViewAssetLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -62,6 +67,19 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
     private var lanCache: Pair<Long, String?>? = null
     private val versionCache = mutableMapOf<String, Pair<Long, String?>>()
 
+    /** Ajustes por servidor; se leen una vez y se refrescan al guardarlos. */
+    private val settingsCache = mutableMapOf<String, ServerSettings>()
+
+    /** Selección de imagen para `<input type="file">` (icono del servidor). */
+    private var fileCallback: ValueCallback<Array<Uri>>? = null
+    private val pickImage = (activity as? ComponentActivity)?.registerForActivityResult(
+        ActivityResultContracts.GetContent(),
+    ) { uri ->
+        val callback = fileCallback
+        fileCallback = null
+        callback?.onReceiveValue(if (uri != null) arrayOf(uri) else null)
+    }
+
     /** Mientras la Activity no está visible no se serializa ni se empuja nada. */
     private var resumed = false
 
@@ -71,14 +89,46 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             javaScriptEnabled = true
             domStorageEnabled = true
             allowFileAccess = false
-            allowContentAccess = false
+            // Necesario para que `<input type="file">` pueda leer lo que devuelve el picker.
+            allowContentAccess = true
         }
         val assetLoader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(activity))
+            .addPathHandler(
+                "/server-icons/",
+                object : WebViewAssetLoader.PathHandler {
+                    override fun handle(path: String): WebResourceResponse? {
+                        val id = path.substringBefore('/')
+                        if (!id.matches(ID_PATTERN)) return null
+                        val file = File(activity.filesDir, "servers/$id/server-icon.png")
+                        if (!file.exists()) return null
+                        return WebResourceResponse("image/png", null, file.inputStream())
+                    }
+                },
+            )
             .build()
         view.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
                 assetLoader.shouldInterceptRequest(request.url)
+        }
+        // `<input type="file">` para el icono del servidor; sin esto el picker no abre.
+        view.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                webView: WebView,
+                callback: ValueCallback<Array<Uri>>,
+                params: FileChooserParams,
+            ): Boolean {
+                fileCallback?.onReceiveValue(null)
+                fileCallback = callback
+                val launcher = pickImage
+                if (launcher == null) {
+                    fileCallback = null
+                    callback.onReceiveValue(null)
+                    return true
+                }
+                launcher.launch("image/*")
+                return true
+            }
         }
         // Chrome DevTools (chrome://inspect) sólo en debug, para el flujo de diseño web.
         WebView.setWebContentsDebuggingEnabled(
@@ -161,9 +211,36 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         fun deleteServer(id: String) = onMain {
             scope.launch {
                 withContext(Dispatchers.IO) { ServerProfileStore.remove(activity, id) }
+                settingsCache.remove(id)
                 if (activeId == id) activeId = null
                 reload()
                 observeActive()
+                schedulePush()
+            }
+        }
+
+        @JavascriptInterface
+        fun updateSettings(id: String, json: String) = onMain {
+            val settings = runCatching { ServerSettings.fromJson(JSONObject(json)) }.getOrNull() ?: return@onMain
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    ServerSettings.write(File(activity.filesDir, "servers/$id"), settings)
+                    ServerProfileStore.setMaxPlayers(activity, id, settings.maxPlayers)
+                }
+                settingsCache[id] = settings
+                reload()
+                schedulePush()
+            }
+        }
+
+        @JavascriptInterface
+        fun setServerIcon(id: String, dataUrl: String) = onMain {
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching { ServerSettings.saveIcon(File(activity.filesDir, "servers/$id"), dataUrl) }
+                        .getOrDefault(false)
+                }
+                if (!ok) Toast.makeText(activity, "No se pudo leer la imagen", Toast.LENGTH_SHORT).show()
                 schedulePush()
             }
         }
@@ -175,6 +252,17 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
         @JavascriptInterface
         fun stopServer(id: String) = onMain { app.managerFor(id).stop() }
+
+        @JavascriptInterface
+        fun sendCommand(id: String, text: String) = onMain { app.managerFor(id).sendCommand(text) }
+
+        @JavascriptInterface
+        fun restartServer(id: String, ramMb: Int, maxPlayers: Int) = onMain {
+            app.managerFor(id).restart(ramMb, maxPlayers)
+        }
+
+        @JavascriptInterface
+        fun extendStartTimer(id: String) = onMain { app.managerFor(id).extendAutoStop() }
 
         @JavascriptInterface
         fun copy(text: String) = onMain {
@@ -207,6 +295,9 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         activeJobs += scope.launch { manager.logs.collect { schedulePush() } }
         activeJobs += scope.launch { manager.ramUsedMb.collect { schedulePush() } }
         activeJobs += scope.launch { manager.players.collect { schedulePush() } }
+        activeJobs += scope.launch { manager.tps.collect { schedulePush() } }
+        activeJobs += scope.launch { manager.startProgress.collect { schedulePush() } }
+        activeJobs += scope.launch { manager.autoStopSeconds.collect { schedulePush() } }
     }
 
     private fun schedulePush() {
@@ -239,6 +330,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                     put("status", manager.status.value.name)
                     put("players", JSONArray(manager.players.value.toList()))
                     put("version", versionOf(profile.id) ?: JSONObject.NULL)
+                    put("iconVersion", iconVersionOf(profile.id) ?: JSONObject.NULL)
                 },
             )
         }
@@ -251,7 +343,6 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             root.put("lanAddress", JSONObject.NULL)
         } else {
             val manager = app.managerFor(id)
-            val running = manager.status.value == ServerManager.Status.Running
             root.put(
                 "active",
                 JSONObject().apply {
@@ -259,10 +350,14 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                     put("status", manager.status.value.name)
                     put("ramUsedMb", manager.ramUsedMb.value ?: JSONObject.NULL)
                     put("players", JSONArray(manager.players.value.toList()))
+                    put("tps", manager.tps.value ?: JSONObject.NULL)
+                    put("startProgress", manager.startProgress.value)
+                    put("autoStopSeconds", manager.autoStopSeconds.value ?: JSONObject.NULL)
+                    put("settings", settingsOf(id).toJson())
                     putActiveLogs(this, id, manager)
                 },
             )
-            root.put("lanAddress", if (running) lanAddress() ?: JSONObject.NULL else JSONObject.NULL)
+            root.put("lanAddress", lanAddress() ?: JSONObject.NULL)
         }
         return root.toString()
     }
@@ -285,6 +380,15 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         lastLogTotal = manager.logTotal
     }
 
+    private fun settingsOf(id: String): ServerSettings =
+        settingsCache.getOrPut(id) { ServerSettings.read(File(activity.filesDir, "servers/$id")) }
+
+    /** mtime del icono (0/null si no existe); sirve para invalidar la caché del `<img>` en JS. */
+    private fun iconVersionOf(id: String): Long? {
+        val file = File(activity.filesDir, "servers/$id/server-icon.png")
+        return if (file.exists()) file.lastModified() else null
+    }
+
     /** `version.txt` es I/O: se cachea, sólo cambia cuando se descarga el `server.jar`. */
     private fun versionOf(id: String): String? {
         val now = SystemClock.uptimeMillis()
@@ -305,6 +409,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         const val LAN_CACHE_MS = 5_000L
         const val VERSION_CACHE_MS = 10_000L
         const val BACKGROUND = 0xFF0A0E17.toInt()
+        val ID_PATTERN = Regex("[A-Za-z0-9-]{1,64}")
     }
 }
 
