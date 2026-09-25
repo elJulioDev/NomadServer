@@ -1,56 +1,243 @@
 @import "tailwindcss";
 
-@font-face {
-  font-family: "Monocraft";
-  src: url("./assets/monocraft.ttf") format("truetype");
-  font-display: swap;
-}
+/* ============================================================
+   DESIGN SYSTEM — tokens estilo shadcn/ui (base neutral, "Nova")
+   Basado en el sistema del portafolio (chanhdai.com, MIT).
+   Solo tema oscuro.
+   ============================================================ */
 
 @theme {
-  --color-nomad-bg: #0a0e17;
-  --color-nomad-surface: #11172a;
-  --color-nomad-card: #141b2e;
-  --color-nomad-border: #232c42;
-  --color-nomad-text: #e7ecf5;
-  --color-nomad-muted: #8b93aa;
-  --color-nomad-online: #34d399;
-  --color-nomad-warn: #fbbf24;
-  --color-nomad-accent: #3b82f6;
-  --font-pixel: "Monocraft", ui-monospace, monospace;
+  /* Superficies */
+  --color-background: #09090b; /* zinc-950 */
+  --color-foreground: #fafafa; /* zinc-50  */
+  --color-card: #18181b; /* zinc-900 */
+  --color-card-foreground: #fafafa;
+  --color-popover: #18181b;
+  --color-popover-foreground: #fafafa;
+  --color-surface: #18181b;
+  --color-line: #27272a; /* zinc-800 */
+
+  /* Semánticos shadcn */
+  --color-primary: #fafafa;
+  --color-primary-foreground: #09090b;
+  --color-secondary: #27272a;
+  --color-secondary-foreground: #fafafa;
+  --color-muted: #27272a;
+  --color-muted-foreground: #a1a1aa; /* zinc-400 */
+  --color-accent: #27272a;
+  --color-accent-foreground: #fafafa;
+  --color-accent-muted: rgb(39 39 42 / 50%);
+  --color-destructive: #ef4444;
+  --color-border: #27272a;
+  --color-input: rgb(255 255 255 / 15%);
+  --color-ring: #3f3f46; /* zinc-700 */
+
+  /* Acentos */
+  --color-info: #3b82f6;
+  --color-success: #22c55e;
+
+  /* Selección invertida */
+  --color-selection: #fafafa;
+  --color-selection-foreground: #09090b;
+
+  /* Radios (0.625rem base, escala shadcn) */
+  --radius: 0.625rem;
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+
+  /* Tipografía */
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Layout / motion */
+  --header-height: 3.5rem;
+  --separator-height: 2rem;
+  --expo-out: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-html,
-body,
-#root {
-  height: 100%;
+/* ============================================================
+   BASE
+   ============================================================ */
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    overflow-x: hidden;
+  }
+
+  body {
+    margin: 0;
+    overflow-x: hidden;
+    background: var(--color-background);
+    color: var(--color-foreground);
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+  }
+
+  ::selection {
+    background-color: var(--color-selection);
+    color: var(--color-selection-foreground);
+  }
+
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+  *::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 9999px;
+  }
 }
 
-body {
-  margin: 0;
-  background: var(--color-nomad-bg);
-  color: var(--color-nomad-text);
-  color-scheme: dark;
-  -webkit-tap-highlight-color: transparent;
-  overscroll-behavior: none;
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+/* ============================================================
+   UTILIDADES — líneas de pantalla (full-bleed)
+   ============================================================ */
+
+@utility screen-line-top {
+  position: relative;
+  &::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -100vw;
+    width: 200vw;
+    height: 1px;
+    background-color: var(--color-line);
+  }
 }
 
-/* Rango táctil cómodo sin el look de slider nativo. */
+@utility screen-line-bottom {
+  position: relative;
+  &::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: -100vw;
+    width: 200vw;
+    height: 1px;
+    background-color: var(--color-line);
+  }
+}
+
+@utility screen-line-top-none {
+  &::before {
+    content: none;
+  }
+}
+
+@utility screen-line-bottom-none {
+  &::after {
+    content: none;
+  }
+}
+
+/* ============================================================
+   UTILIDADES — rayas diagonales y separador
+   ============================================================ */
+
+@utility diagonal-stripes {
+  background-image: repeating-linear-gradient(
+    315deg,
+    var(--color-line) 0,
+    var(--color-line) 1px,
+    transparent 0,
+    transparent 50%
+  );
+  background-size: 10px 10px;
+}
+
+@utility stripe-divider {
+  position: relative;
+  height: var(--separator-height);
+  &::before {
+    content: "";
+    position: absolute;
+    left: -100vw;
+    width: 200vw;
+    height: 100%;
+    background-image: repeating-linear-gradient(
+      315deg,
+      var(--color-line) 0,
+      var(--color-line) 1px,
+      transparent 0,
+      transparent 50%
+    );
+    background-size: 10px 10px;
+  }
+}
+
+/* ============================================================
+   UTILIDADES — enlaces y área táctil
+   ============================================================ */
+
+@utility link-underline {
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in oklab, currentColor 30%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  transition-property: text-decoration-color;
+  transition-duration: 150ms;
+  &:hover {
+    text-decoration-color: currentColor;
+  }
+}
+
+@utility extend-touch-target {
+  @media (pointer: coarse) {
+    position: relative;
+    touch-action: manipulation;
+    &::after {
+      content: "";
+      position: absolute;
+      inset: -0.5rem;
+    }
+  }
+}
+
+/* ============================================================
+   Slider — control nativo con estética shadcn
+   ============================================================ */
+
 input[type="range"] {
   -webkit-appearance: none;
   appearance: none;
   height: 4px;
   border-radius: 999px;
-  background: var(--color-nomad-border);
+  background: var(--color-secondary);
 }
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
-  background: var(--color-nomad-accent);
-  border: 2px solid var(--color-nomad-bg);
+  background: var(--color-primary);
+  border: 2px solid var(--color-background);
+  box-shadow: 0 0 0 1px var(--color-border);
 }
 input[type="range"]:disabled::-webkit-slider-thumb {
-  background: var(--color-nomad-muted);
+  background: var(--color-muted-foreground);
 }

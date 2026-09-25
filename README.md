@@ -144,7 +144,7 @@ flowchart LR
 | 3 | OK | **Multi-servidor y métricas** — perfiles, RAM real vía `/proc`, jugadores, IP LAN copiable |
 | 4 | Pendiente | **Foreground service** — el server sobrevive en segundo plano y con la pantalla apagada |
 | 5 | Pendiente | **Túnel Playit.gg** — acceso público desde cualquier red, sin abrir puertos en el router |
-| 6 | Pendiente | **World border y ajustes avanzados** — los controles visibles en *Ajustes* dejan de ser decorativos |
+| 6 | Pendiente | **World border** — el borde de mundo (el resto de *Ajustes* y el icono del servidor ya son reales) |
 
 > [!WARNING]
 > Hasta la **Fase 4**, Android puede matar el proceso si la app pasa a segundo plano. Mientras

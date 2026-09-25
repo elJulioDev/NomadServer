@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { bridge, subscribe } from './bridge'
 import { DetailScreen, ServersScreen } from './screens'
-import { MAX_LOGS, type Snapshot, type Tab } from './types'
+import { playChime } from './sound'
+import { MAX_LOGS, type Snapshot, type Status, type Tab } from './types'
 
 const EMPTY: Snapshot = { servers: [], active: null, lanAddress: null }
 
@@ -35,6 +36,14 @@ export default function App() {
     [],
   )
 
+  // Campanita cuando el servidor termina de arrancar (Starting -> Running).
+  const lastStatus = useRef<Status | null>(null)
+  useEffect(() => {
+    const status = snapshot.active?.status ?? null
+    if (lastStatus.current === 'Starting' && status === 'Running') playChime()
+    lastStatus.current = status
+  }, [snapshot.active?.status])
+
   // El botón "atrás" de Android pregunta primero a la web (ver MainActivity/WebUi).
   const openIdRef = useRef(openId)
   useEffect(() => {
@@ -56,6 +65,16 @@ export default function App() {
     bridge.openServer(id)
   }
 
+  // Eco local del comando enviado: la consola del server no lo relee en stdout.
+  const sendCommand = (text: string) => {
+    if (!openId) return
+    setLogs((prev) => {
+      const merged = prev.concat(`> ${text}`)
+      return merged.length > MAX_LOGS ? merged.slice(-MAX_LOGS) : merged
+    })
+    bridge.sendCommand(openId, text)
+  }
+
   const selected = openId ? snapshot.servers.find((server) => server.id === openId) : undefined
 
   return (
@@ -68,6 +87,7 @@ export default function App() {
           lanAddress={snapshot.lanAddress}
           tab={tab}
           onTabChange={setTab}
+          onCommand={sendCommand}
           onBack={() => {
             setOpenId(null)
             bridge.closeServer()

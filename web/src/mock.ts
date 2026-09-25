@@ -1,4 +1,4 @@
-import type { NomadBridge, ServerSummary, Snapshot } from './types'
+import { DEFAULT_SETTINGS, type NomadBridge, type ServerSettings, type ServerSummary, type Snapshot } from './types'
 
 const SAMPLE_LINES = [
   'Preparing level "world"',
@@ -18,11 +18,14 @@ const clock = () => new Date().toTimeString().slice(0, 8)
  */
 export function createMock(): NomadBridge {
   const servers: ServerSummary[] = [
-    { id: 'demo-survival', name: 'Survival', ramMb: 2048, maxPlayers: 20, status: 'Stopped', players: [], version: '1.21.8' },
-    { id: 'demo-creativo', name: 'Creativo', ramMb: 4096, maxPlayers: 10, status: 'Stopped', players: [], version: null },
+    { id: 'demo-survival', name: 'Survival', ramMb: 2048, maxPlayers: 20, status: 'Stopped', players: [], version: '1.21.8', iconVersion: null },
+    { id: 'demo-creativo', name: 'Creativo', ramMb: 4096, maxPlayers: 10, status: 'Stopped', players: [], version: null, iconVersion: null },
   ]
+  const settings: Record<string, ServerSettings> = {}
   const logs: Record<string, string[]> = {}
   const ram: Record<string, number | null> = {}
+  const progress: Record<string, number> = {}
+  const autoStop: Record<string, number | null> = {}
   const timers = new Map<string, number>()
   let activeId: string | null = null
   let lastLogId: string | null = null
@@ -41,6 +44,10 @@ export function createMock(): NomadBridge {
         players: [...active.players],
         logs: reset ? list : list.slice(lastLogCount),
         logsReset: reset,
+        settings: settings[active.id] ?? DEFAULT_SETTINGS,
+        tps: active.status === 'Running' ? 20 : null,
+        startProgress: active.status === 'Running' ? 100 : (progress[active.id] ?? 0),
+        autoStopSeconds: autoStop[active.id] ?? null,
       }
       lastLogId = active.id
       lastLogCount = list.length
@@ -65,19 +72,38 @@ export function createMock(): NomadBridge {
     server.maxPlayers = maxPlayers
     logs[id] = []
     lastLogId = null
+    progress[id] = 0
+    autoStop[id] = null
     push(id, 'Iniciando servidor (mock)…')
     emit()
     let tick = 0
     const timer = window.setInterval(() => {
       tick++
       push(id, SAMPLE_LINES[tick % SAMPLE_LINES.length]!)
+      if (server.status === 'Starting') progress[id] = Math.min(99, (progress[id] ?? 0) + 34)
       if (tick === 3) {
         push(id, 'Done (4.231s)! For help, type "help"')
         server.status = 'Running'
+        progress[id] = 100
         ram[id] = Math.round(ramMb * 0.4)
+        if (server.players.length === 0) autoStop[id] = 120
       }
       if (server.status === 'Running' && tick % 2 === 0) {
         ram[id] = Math.min(ramMb, (ram[id] ?? 0) + Math.round(ramMb * 0.02))
+      }
+      if (autoStop[id] != null) {
+        if (server.players.length > 0) {
+          autoStop[id] = null
+        } else if ((autoStop[id] = (autoStop[id] ?? 0) - 1) <= 0) {
+          autoStop[id] = null
+          push(id, 'Nadie se conectó; apagando el servidor')
+          window.clearInterval(timer)
+          timers.delete(id)
+          server.status = 'Stopped'
+          server.players = []
+          ram[id] = null
+          progress[id] = 0
+        }
       }
       emit()
       if (tick > 300) window.clearInterval(timer)
@@ -96,7 +122,7 @@ export function createMock(): NomadBridge {
       emit()
     },
     createServer: (name, ramMb, maxPlayers) => {
-      servers.push({ id: `demo-${randomSuffix()}`, name, ramMb, maxPlayers, status: 'Stopped', players: [], version: null })
+      servers.push({ id: `demo-${randomSuffix()}`, name, ramMb, maxPlayers, status: 'Stopped', players: [], version: null, iconVersion: null })
       emit()
     },
     deleteServer: (id) => {
@@ -104,6 +130,37 @@ export function createMock(): NomadBridge {
       if (index >= 0) servers.splice(index, 1)
       if (activeId === id) activeId = null
       emit()
+    },
+    updateSettings: (id, json) => {
+      try {
+        const parsed = JSON.parse(json) as ServerSettings
+        settings[id] = parsed
+        const server = servers.find((s) => s.id === id)
+        if (server) server.maxPlayers = parsed.maxPlayers
+      } catch {
+        // JSON inválido en modo diseño: se ignora.
+      }
+      emit()
+    },
+    // El mock no sirve PNGs; el icono se previsualiza localmente al elegirlo.
+    setServerIcon: () => {},
+    extendStartTimer: (id) => {
+      if (autoStop[id] != null) autoStop[id] = (autoStop[id] ?? 0) + 60
+      emit()
+    },
+    restartServer: (id, ramMb, maxPlayers) => {
+      const server = servers.find((s) => s.id === id)
+      if (!server) return
+      window.clearInterval(timers.get(id))
+      timers.delete(id)
+      server.status = 'Stopped'
+      server.players = []
+      ram[id] = null
+      autoStop[id] = null
+      progress[id] = 0
+      push(id, 'Reiniciando servidor…')
+      emit()
+      window.setTimeout(() => start(id, ramMb, maxPlayers), 1200)
     },
     startServer: start,
     stopServer: (id) => {
@@ -120,6 +177,12 @@ export function createMock(): NomadBridge {
         ram[id] = null
         emit()
       }, 1200)
+    },
+    sendCommand: (id, text) => {
+      const clean = text.replace(/^\//, '')
+      if (/^say\s+/i.test(clean)) push(id, `[Server] ${clean.slice(4)}`)
+      else push(id, clean)
+      emit()
     },
     copy: (text) => {
       void navigator.clipboard?.writeText(text)
