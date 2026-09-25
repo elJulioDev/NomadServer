@@ -71,7 +71,8 @@ optimizar el mundo, explorar los archivos del servidor y editar sus ajustes.
 
 **Panel y control**
 
-- **Métricas reales** — RAM residente leyendo `/proc` (suma todos los JVMs del server), jugadores
+- **Métricas reales** — RAM residente leyendo `/proc` (suma todos los JVMs del server), CPU en % del
+  dispositivo (delta de ticks de `/proc/<pid>/stat`, normalizado por núcleos), jugadores
   conectados parseando `joined/left the game`, TPS estimado desde el log e IP LAN copiable.
 - **Arranque con progreso** — barra de porcentaje ("Preparing spawn area"), campanita al terminar
   de encender y aviso de "en línea" solo cuando el log dice `Done (`.
@@ -116,7 +117,8 @@ optimizar el mundo, explorar los archivos del servidor y editar sus ajustes.
 **Ajustes**
 
 - **`server.properties` real**: slots, modo de juego, dificultad, vuelo (`allow-flight`), lista
-  blanca, "cracked" (`online-mode`), protección del spawn, MOTD e icono.
+  blanca, "cracked" (`online-mode`), protección del spawn, MOTD, icono y las **distancias de
+  visión y simulación** (chunks), que son la palanca de rendimiento más directa.
 - Se **bloquea con el servidor encendido** (Minecraft reescribe el archivo al detenerse).
 
 **Compatibilidad**
@@ -283,7 +285,7 @@ Además:
 - **TPS estimado** — vanilla no expone TPS real; el valor es una aproximación desde el log.
 - **Consumo y calor** — el gasto lo domina el propio Minecraft, no la app: con la UI en segundo
   plano ésta no sondea RAM ni arma la interfaz, y el JRE arranca con `SerialGC` (menos CPU que G1).
-  La palanca más efectiva sigue siendo bajar `view-distance` / `simulation-distance`.
+  La palanca más efectiva son las distancias de visión/simulación, ajustables en *Ajustes*.
 - **Sin 24/7 garantizado desde el móvil** — depende de la luz, el Wi-Fi y la batería; para un
   server siempre online usa un equipo externo (ver [Uso rápido](#uso-rápido)).
 - **Una APK ≈ 60 MB** — el JRE va dentro comprimido; es el precio de no depender de nada externo.
@@ -325,7 +327,7 @@ app/src/main/java/com/eljuliodev/servidormc/
 ├── MainActivity.kt          # Activity: monta el WebView y el botón "atrás"
 ├── WebUi.kt                 # sirve assets/ui y hace de puente UI <-> StateFlow
 ├── NomadApplication.kt      # contenedor de los ServerManager
-├── ServerManager.kt         # proceso del server + StateFlows (estado, logs, TPS, semilla...)
+├── ServerManager.kt         # proceso del server + StateFlows (estado, logs, RAM, CPU, TPS...)
 ├── ServerFiles.kt           # eula, server.properties, versiones y descarga del server.jar
 ├── ServerSettings.kt        # lectura/escritura de server.properties e icono 64x64
 ├── ServerProfileStore.kt    # perfiles en filesDir/servers.json

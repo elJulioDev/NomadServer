@@ -69,6 +69,10 @@ export interface ServerSettings {
   whitelist: boolean
   cracked: boolean
   spawnProtection: number
+  /** `view-distance`: radio de chunks que se envían al cliente. */
+  viewDistance: number
+  /** `simulation-distance`: radio de chunks que el server simula (mobs, ticks). */
+  simulationDistance: number
 }
 
 export const DEFAULT_SETTINGS: ServerSettings = {
@@ -80,7 +84,14 @@ export const DEFAULT_SETTINGS: ServerSettings = {
   whitelist: false,
   cracked: false,
   spawnProtection: 16,
+  viewDistance: 6,
+  simulationDistance: 4,
 }
+
+/** Rangos aceptados por vanilla; los defaults de la app son más bajos por ser un móvil. */
+export const VIEW_MIN = 3
+export const SIM_MIN = 2
+export const DISTANCE_MAX = 32
 
 export interface ServerSummary {
   id: string
@@ -100,6 +111,8 @@ export interface ActiveServer {
   id: string
   status: Status
   ramUsedMb: number | null
+  /** CPU del server en % del dispositivo (0..100), o null si aún no hay medida. */
+  cpuPercent: number | null
   players: string[]
   /** Sólo las líneas nuevas desde el push anterior (todas si `logsReset`). */
   logs: string[]

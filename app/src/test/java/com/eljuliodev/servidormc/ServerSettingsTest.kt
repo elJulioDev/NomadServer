@@ -24,9 +24,28 @@ class ServerSettingsTest {
             whitelist = true,
             cracked = true,
             spawnProtection = 0,
+            viewDistance = 10,
+            simulationDistance = 5,
         )
         ServerSettings.write(dir, settings)
         assertEquals(settings, ServerSettings.read(dir))
+    }
+
+    @Test
+    fun `fromJson clamps distances and keeps simulation within view`() {
+        val json = org.json.JSONObject("""{"viewDistance": 4, "simulationDistance": 32}""")
+        val settings = ServerSettings.fromJson(json)
+        assertEquals(4, settings.viewDistance)
+        // Vanilla ignora una simulación mayor que la vista, así que se recorta.
+        assertEquals(4, settings.simulationDistance)
+    }
+
+    @Test
+    fun `fromJson falls back for out-of-range distances`() {
+        val json = org.json.JSONObject("""{"viewDistance": 0, "simulationDistance": 1}""")
+        val settings = ServerSettings.fromJson(json)
+        assertEquals(ServerSettings.VIEW_MIN, settings.viewDistance)
+        assertEquals(ServerSettings.SIM_MIN, settings.simulationDistance)
     }
 
     @Test

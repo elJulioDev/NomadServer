@@ -74,6 +74,12 @@ const ICONS = {
     </>
   ),
   activity: <path d="M22 12h-4l-3 9L9 3l-3 9H2" />,
+  gauge: (
+    <>
+      <path d="M3.5 18a9 9 0 1 1 17 0" />
+      <path d="m12 14 3.5-4.5" />
+    </>
+  ),
   globe: (
     <>
       <circle cx="12" cy="12" r="9" />

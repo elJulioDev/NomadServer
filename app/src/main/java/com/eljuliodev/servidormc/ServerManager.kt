@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.io.File
+import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.seconds
 
 /**
@@ -63,6 +64,13 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private val _ramUsedMb = MutableStateFlow<Int?>(null)
     val ramUsedMb: StateFlow<Int?> = _ramUsedMb.asStateFlow()
 
+    /**
+     * CPU del servidor en % del dispositivo (0..100). Se suman los ticks de todos sus procesos y
+     * se normaliza por núcleos, así que 100 % = teléfono entero, no un núcleo.
+     */
+    private val _cpuPercent = MutableStateFlow<Int?>(null)
+    val cpuPercent: StateFlow<Int?> = _cpuPercent.asStateFlow()
+
     /** Jugadores actualmente conectados, deducido de las líneas "joined/left the game". */
     private val _players = MutableStateFlow<Set<String>>(emptySet())
     val players: StateFlow<Set<String>> = _players.asStateFlow()
@@ -95,6 +103,10 @@ class ServerManager(private val context: Context, private val serverId: String) 
 
     @Volatile
     private var pendingRestart = false
+
+    /** Referencia para el delta de CPU: ticks acumulados y momento en que se leyeron. */
+    private var cpuLastTicks = 0L
+    private var cpuLastAt = 0L
 
     /** Evita repetir el aviso de "puerto ocupado" dentro del mismo arranque. */
     @Volatile
@@ -130,6 +142,9 @@ class ServerManager(private val context: Context, private val serverId: String) 
         _tps.value = null
         _autoStopSeconds.value = null
         _seed.value = null
+        _cpuPercent.value = null
+        cpuLastTicks = 0L
+        cpuLastAt = 0L
         portHintShown = false
         scope.launch {
             try {
@@ -174,7 +189,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 val p = pb.start()
                 process = p
                 // Sigue en Starting hasta que el log diga "Done (": así la UI muestra el progreso.
-                monitorJob = scope.launch { monitorRam() }
+                monitorJob = scope.launch { monitorStats() }
 
                 p.inputStream.bufferedReader().useLines { lines ->
                     for (line in lines) {
@@ -194,6 +209,9 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 autoStopJob = null
                 _autoStopSeconds.value = null
                 _ramUsedMb.value = null
+                _cpuPercent.value = null
+                cpuLastTicks = 0L
+                cpuLastAt = 0L
                 _tps.value = null
                 _players.value = emptySet()
                 process = null
@@ -271,11 +289,16 @@ class ServerManager(private val context: Context, private val serverId: String) 
         }
     }
 
-    private suspend fun monitorRam() {
+    private suspend fun monitorStats() {
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
             // Ojo: recorrer `/proc` cada pocos segundos es de lo más caro que hace la app; con la
             // app en segundo plano (o la pantalla apagada) no tiene sentido y sólo gasta batería.
-            if (uiVisible) _ramUsedMb.value = readServerRssMb()
+            if (uiVisible) {
+                // Una sola pasada por `/proc`: de ahí salen RAM y CPU.
+                val pids = serverPids()
+                _ramUsedMb.value = readRssMb(pids)
+                _cpuPercent.value = readCpuPercent(pids)
+            }
             delay(RAM_POLL_MS)
         }
     }
@@ -288,12 +311,39 @@ class ServerManager(private val context: Context, private val serverId: String) 
      * resuelven de forma fiable en este proyecto (ver AGENTS.md). Si el sistema no deja leer
      * `/proc`, el dato simplemente queda en null.
      */
-    private fun readServerRssMb(): Int? {
-        val pids = serverPids()
+    private fun readRssMb(pids: List<Long>): Int? {
         if (pids.isEmpty()) return null
         val totalKb = pids.sumOf { readRssKb(it) ?: 0 }
         return if (totalKb == 0) null else totalKb / 1024
     }
+
+    /**
+     * CPU del server en % del dispositivo, a partir del delta de ticks entre sondeos. Vanilla usa
+     * varios hilos, de ahí normalizar por núcleos; el primer sondeo (o un reinicio) no da dato.
+     */
+    private fun readCpuPercent(pids: List<Long>): Int? {
+        val ticks = pids.sumOf { readCpuTicks(it) ?: 0L }
+        val now = SystemClock.elapsedRealtime()
+        val previousTicks = cpuLastTicks
+        val previousAt = cpuLastAt
+        cpuLastTicks = ticks
+        cpuLastAt = now
+        if (previousAt == 0L || now <= previousAt || ticks < previousTicks) return null
+        val coreSeconds = (ticks - previousTicks) / CLK_TCK.toDouble()
+        val wallSeconds = (now - previousAt) / 1000.0
+        val cores = Runtime.getRuntime().availableProcessors().coerceAtLeast(1)
+        return (coreSeconds / wallSeconds / cores * 100.0).roundToInt().coerceIn(0, 100)
+    }
+
+    /** utime+stime de `/proc/<pid>/stat`; el `comm` puede llevar espacios, así que se corta tras `)`. */
+    private fun readCpuTicks(pid: Long): Long? = runCatching {
+        val stat = File("/proc/$pid/stat").readText()
+        val fields = stat.substring(stat.lastIndexOf(')') + 2).split(' ')
+        // Tras ") " van state(3), ppid(4)…; utime es el campo 14 y stime el 15.
+        val utime = fields.getOrNull(11)?.toLongOrNull() ?: return@runCatching null
+        val stime = fields.getOrNull(12)?.toLongOrNull() ?: return@runCatching null
+        utime + stime
+    }.getOrNull()
 
     private fun serverPids(): List<Long> =
         File("/proc").listFiles { f -> f.isDirectory && f.name.all(Char::isDigit) }
@@ -422,6 +472,17 @@ class ServerManager(private val context: Context, private val serverId: String) 
 
         /** Sondear `/proc` es caro; con la UI visible, cada 10 s alcanza. */
         private const val RAM_POLL_MS = 10_000L
+
+        /**
+         * Ticks de CPU por segundo (`_SC_CLK_TCK`). En Android son 100, pero se consulta al
+         * sistema porque algún kernel usa 1000. `lazy` para no tocar `Os` al cargar la clase
+         * (los tests JVM no tienen implementación real).
+         */
+        private val CLK_TCK: Long by lazy {
+            runCatching { android.system.Os.sysconf(android.system.OsConstants._SC_CLK_TCK) }
+                .getOrDefault(100L)
+                .coerceAtLeast(1L)
+        }
 
         private val WHITESPACE = Regex("\\s+")
     }

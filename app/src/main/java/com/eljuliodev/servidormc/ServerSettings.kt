@@ -22,6 +22,10 @@ data class ServerSettings(
     val whitelist: Boolean = false,
     val cracked: Boolean = false,
     val spawnProtection: Int = 16,
+    /** `view-distance`: radio de chunks que se envían al cliente. */
+    val viewDistance: Int = 6,
+    /** `simulation-distance`: radio de chunks que el server "simula" (mobs, ticks). */
+    val simulationDistance: Int = 4,
 ) {
 
     fun toJson(): JSONObject = JSONObject().apply {
@@ -33,6 +37,8 @@ data class ServerSettings(
         put("whitelist", whitelist)
         put("cracked", cracked)
         put("spawnProtection", spawnProtection)
+        put("viewDistance", viewDistance)
+        put("simulationDistance", simulationDistance)
     }
 
     companion object {
@@ -40,17 +46,29 @@ data class ServerSettings(
         val DIFFICULTIES = listOf("peaceful", "easy", "normal", "hard")
         const val ICON_SIZE = 64
 
+        /** Rangos que acepta vanilla; el default de la app es conservador (6/4) por ser móvil. */
+        const val VIEW_MIN = 3
+        const val SIM_MIN = 2
+        const val DISTANCE_MAX = 32
+
         /** Normaliza lo que manda la web: valores raros caen a un default válido. */
-        fun fromJson(json: JSONObject) = ServerSettings(
-            motd = json.optString("motd", "NomadServer").take(200),
-            maxPlayers = json.optInt("maxPlayers", 20).coerceIn(1, 100),
-            gamemode = json.optString("gamemode", "survival").let { if (it in GAMEMODES) it else "survival" },
-            difficulty = json.optString("difficulty", "easy").let { if (it in DIFFICULTIES) it else "easy" },
-            allowFlight = json.optBoolean("allowFlight", false),
-            whitelist = json.optBoolean("whitelist", false),
-            cracked = json.optBoolean("cracked", false),
-            spawnProtection = json.optInt("spawnProtection", 16).coerceIn(0, 1000),
-        )
+        fun fromJson(json: JSONObject): ServerSettings {
+            val view = json.optInt("viewDistance", 6).coerceIn(VIEW_MIN, DISTANCE_MAX)
+            return ServerSettings(
+                motd = json.optString("motd", "NomadServer").take(200),
+                maxPlayers = json.optInt("maxPlayers", 20).coerceIn(1, 100),
+                gamemode = json.optString("gamemode", "survival").let { if (it in GAMEMODES) it else "survival" },
+                difficulty = json.optString("difficulty", "easy").let { if (it in DIFFICULTIES) it else "easy" },
+                allowFlight = json.optBoolean("allowFlight", false),
+                whitelist = json.optBoolean("whitelist", false),
+                cracked = json.optBoolean("cracked", false),
+                spawnProtection = json.optInt("spawnProtection", 16).coerceIn(0, 1000),
+                viewDistance = view,
+                simulationDistance = json.optInt("simulationDistance", 4)
+                    .coerceIn(SIM_MIN, DISTANCE_MAX)
+                    .coerceAtMost(view),
+            )
+        }
 
         fun read(dir: File): ServerSettings {
             val file = File(dir, "server.properties")
@@ -62,6 +80,7 @@ data class ServerSettings(
                 val eq = line.indexOf('=')
                 if (eq > 0) map[line.substring(0, eq).trim()] = line.substring(eq + 1).trim()
             }
+            val view = (map["view-distance"]?.toIntOrNull() ?: 6).coerceIn(VIEW_MIN, DISTANCE_MAX)
             return ServerSettings(
                 motd = decodeValue(map["motd"] ?: "NomadServer"),
                 maxPlayers = map["max-players"]?.toIntOrNull() ?: 20,
@@ -71,6 +90,10 @@ data class ServerSettings(
                 whitelist = map["white-list"] == "true",
                 cracked = map["online-mode"] == "false",
                 spawnProtection = map["spawn-protection"]?.toIntOrNull() ?: 16,
+                viewDistance = view,
+                simulationDistance = (map["simulation-distance"]?.toIntOrNull() ?: 4)
+                    .coerceIn(SIM_MIN, DISTANCE_MAX)
+                    .coerceAtMost(view),
             )
         }
 
@@ -85,6 +108,8 @@ data class ServerSettings(
                 "enforce-whitelist" to settings.whitelist.toString(),
                 "online-mode" to (!settings.cracked).toString(),
                 "spawn-protection" to settings.spawnProtection.toString(),
+                "view-distance" to settings.viewDistance.toString(),
+                "simulation-distance" to settings.simulationDistance.toString(),
             )
             val file = File(dir, "server.properties")
             val lines = if (file.exists()) file.readLines().toMutableList() else mutableListOf()

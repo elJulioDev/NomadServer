@@ -74,6 +74,7 @@ export function createMock(): NomadBridge {
   const whitelist: Record<string, string[]> = {}
   const logs: Record<string, string[]> = {}
   const ram: Record<string, number | null> = {}
+  const cpu: Record<string, number | null> = {}
   const progress: Record<string, number> = {}
   const autoStop: Record<string, number | null> = {}
   const seeds: Record<string, string | null> = {}
@@ -98,6 +99,7 @@ export function createMock(): NomadBridge {
         id: active.id,
         status: active.status,
         ramUsedMb: ram[active.id] ?? null,
+        cpuPercent: cpu[active.id] ?? null,
         players: [...active.players],
         logs: reset ? list : list.slice(lastLogCount),
         logsReset: reset,
@@ -157,6 +159,8 @@ export function createMock(): NomadBridge {
       }
       if (server.status === 'Running' && tick % 2 === 0) {
         ram[id] = Math.min(ramMb, (ram[id] ?? 0) + Math.round(ramMb * 0.02))
+        // CPU de mentira: oscila entre ~15 % y ~70 % del dispositivo.
+        cpu[id] = Math.max(15, Math.min(70, (cpu[id] ?? 35) + (tick % 4 === 0 ? -7 : 5)))
       }
       if (autoStop[id] != null) {
         if (server.players.length > 0) {
@@ -169,6 +173,7 @@ export function createMock(): NomadBridge {
           server.status = 'Stopped'
           server.players = []
           ram[id] = null
+          cpu[id] = null
           progress[id] = 0
         }
       }
@@ -359,6 +364,7 @@ export function createMock(): NomadBridge {
       server.status = 'Stopped'
       server.players = []
       ram[id] = null
+      cpu[id] = null
       autoStop[id] = null
       progress[id] = 0
       push(id, 'Reiniciando servidor…')
@@ -378,6 +384,7 @@ export function createMock(): NomadBridge {
         server.status = 'Stopped'
         server.players = []
         ram[id] = null
+        cpu[id] = null
         emit()
       }, 1200)
     },

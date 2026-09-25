@@ -581,6 +581,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         activeJobs += scope.launch { manager.status.collect { schedulePush() } }
         activeJobs += scope.launch { manager.logSignal.collect { schedulePush() } }
         activeJobs += scope.launch { manager.ramUsedMb.collect { schedulePush() } }
+        activeJobs += scope.launch { manager.cpuPercent.collect { schedulePush() } }
         activeJobs += scope.launch { manager.players.collect { schedulePush() } }
         activeJobs += scope.launch { manager.tps.collect { schedulePush() } }
         activeJobs += scope.launch { manager.seed.collect { schedulePush() } }
@@ -656,6 +657,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                     put("id", id)
                     put("status", manager.status.value.name)
                     put("ramUsedMb", manager.ramUsedMb.value ?: JSONObject.NULL)
+                    put("cpuPercent", manager.cpuPercent.value ?: JSONObject.NULL)
                     put("players", JSONArray(manager.players.value.toList()))
                     playersOf(id).let { info ->
                         put("ops", JSONArray(info.ops))

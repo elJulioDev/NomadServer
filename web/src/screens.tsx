@@ -30,6 +30,9 @@ import {
 } from './components'
 import {
   DEFAULT_SETTINGS,
+  DISTANCE_MAX,
+  SIM_MIN,
+  VIEW_MIN,
   serverIconUrl,
   type ActiveServer,
   type Difficulty,
@@ -1048,6 +1051,7 @@ function PanelTab({
   const stopping = status === 'Stopping'
   const players = active?.players ?? server.players
   const ramUsedMb = active?.ramUsedMb ?? null
+  const cpu = active?.cpuPercent ?? null
   const tps = active?.tps ?? null
   const progress = active?.startProgress ?? 0
   const autoStop = active?.autoStopSeconds ?? null
@@ -1145,6 +1149,8 @@ function PanelTab({
           <StatRow icon="users" label="Jugadores" value={`${players.length}/${server.maxPlayers}`} />
           <Separator />
           <StatRow icon="cpu" label="RAM" value={`${ramUsedMb ?? '—'} / ${ramMb} MB`} />
+          <Separator />
+          <StatRow icon="gauge" label="CPU" value={cpu !== null ? `${cpu}%` : '—'} />
           <Separator />
           <StatRow icon="activity" label="TPS" value={tps !== null ? tps.toFixed(1) : '—'} />
         </PanelContent>
@@ -1733,7 +1739,31 @@ function SettingsForm({
           value={ramMb}
           onChange={onRamChange}
         />
-        <p className="-mt-1 text-xs text-muted-foreground">Se aplica la próxima vez que enciendas el servidor.</p>
+        <Slider
+          label={`Distancia de visión: ${settings.viewDistance} chunks`}
+          min={VIEW_MIN}
+          max={DISTANCE_MAX}
+          step={1}
+          value={settings.viewDistance}
+          onChange={(value) =>
+            onChange({
+              viewDistance: value,
+              // `simulation-distance` no puede superar a `view-distance` (vanilla lo ignora).
+              simulationDistance: Math.min(settings.simulationDistance, value),
+            })
+          }
+        />
+        <Slider
+          label={`Distancia de simulación: ${settings.simulationDistance} chunks`}
+          min={SIM_MIN}
+          max={settings.viewDistance}
+          step={1}
+          value={settings.simulationDistance}
+          onChange={(value) => set('simulationDistance', value)}
+        />
+        <p className="-mt-1 text-xs text-muted-foreground">
+          Menos distancia es menos CPU y menos calor. Se aplica la próxima vez que enciendas el servidor.
+        </p>
       </SettingsSection>
     </>
   )
