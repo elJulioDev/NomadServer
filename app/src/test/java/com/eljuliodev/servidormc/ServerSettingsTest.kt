@@ -54,4 +54,20 @@ class ServerSettingsTest {
         ServerSettings.write(dir, ServerSettings(cracked = false))
         assertTrue(File(dir, "server.properties").readText().contains("online-mode=true"))
     }
+
+    @Test
+    fun `motd escapes section signs and newlines for server properties`() {
+        val dir = temp.newFolder()
+        ServerSettings.write(dir, ServerSettings(motd = "§aHola§r\nSegunda"))
+        val text = File(dir, "server.properties").readText()
+        assertTrue(text.contains("motd=\\u00A7aHola\\u00A7r\\nSegunda"))
+        assertEquals("§aHola§r\nSegunda", ServerSettings.read(dir).motd)
+    }
+
+    @Test
+    fun `read decodes unicode escapes written by the server`() {
+        val dir = temp.newFolder()
+        File(dir, "server.properties").writeText("motd=\\u00a7cHola\\u00a7r\\nfin\n")
+        assertEquals("§cHola§r\nfin", ServerSettings.read(dir).motd)
+    }
 }

@@ -63,7 +63,7 @@ data class ServerSettings(
                 if (eq > 0) map[line.substring(0, eq).trim()] = line.substring(eq + 1).trim()
             }
             return ServerSettings(
-                motd = map["motd"] ?: "NomadServer",
+                motd = decodeValue(map["motd"] ?: "NomadServer"),
                 maxPlayers = map["max-players"]?.toIntOrNull() ?: 20,
                 gamemode = map["gamemode"]?.lowercase() ?: "survival",
                 difficulty = map["difficulty"]?.lowercase() ?: "easy",
@@ -76,7 +76,7 @@ data class ServerSettings(
 
         fun write(dir: File, settings: ServerSettings) {
             val values = linkedMapOf(
-                "motd" to settings.motd,
+                "motd" to encodeValue(settings.motd),
                 "max-players" to settings.maxPlayers.toString(),
                 "gamemode" to settings.gamemode,
                 "difficulty" to settings.difficulty,
@@ -97,6 +97,59 @@ data class ServerSettings(
             pending.forEach { (key, value) -> lines.add("$key=$value") }
             dir.mkdirs()
             file.writeText(lines.joinToString("\n") + "\n")
+        }
+
+        /**
+         * `server.properties` lo lee Minecraft con `Properties.load`, que es ISO-8859-1 y
+         * interpreta `\uXXXX` / `\n`. El MOTD lleva `§` (U+00A7, no Latin-1) y puede tener dos
+         * líneas, así que se escapan al escribir y se desescapan al leer.
+         */
+        private fun encodeValue(value: String): String = buildString(value.length) {
+            for (ch in value) {
+                when (ch) {
+                    '\\' -> append("\\\\")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    '§' -> append("\\u00A7")
+                    else -> append(ch)
+                }
+            }
+        }
+
+        private fun decodeValue(value: String): String {
+            if ('\\' !in value) return value
+            val out = StringBuilder(value.length)
+            var i = 0
+            while (i < value.length) {
+                val ch = value[i]
+                if (ch != '\\' || i + 1 >= value.length) {
+                    out.append(ch)
+                    i++
+                    continue
+                }
+                when (val next = value[i + 1]) {
+                    'u' -> {
+                        val hex = value.substring(i + 2, minOf(i + 6, value.length))
+                        val code = hex.takeIf { it.length == 4 }?.toIntOrNull(16)
+                        if (code == null) {
+                            out.append(ch)
+                            i++
+                        } else {
+                            out.append(code.toChar())
+                            i += 6
+                        }
+                    }
+                    'n' -> { out.append('\n'); i += 2 }
+                    'r' -> { out.append('\r'); i += 2 }
+                    't' -> { out.append('\t'); i += 2 }
+                    'f' -> { out.append('\u000C'); i += 2 }
+                    '\\' -> { out.append('\\'); i += 2 }
+                    // Java descarta la barra si el escape no es válido.
+                    else -> { out.append(next); i += 2 }
+                }
+            }
+            return out.toString()
         }
 
         /** Guarda `server-icon.png` (64x64) desde un data URL `data:image/…;base64,…`. */

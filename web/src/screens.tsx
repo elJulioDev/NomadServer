@@ -649,6 +649,163 @@ function LogLine({ line }: { line: string }) {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
+/* ------------------------------ MOTD (formato §) ----------------------------- */
+
+const MOTD_MAX = 256
+const MC_COLORS: [string, string][] = [
+  ['0', '#000000'],
+  ['1', '#0000AA'],
+  ['2', '#00AA00'],
+  ['3', '#00AAAA'],
+  ['4', '#AA0000'],
+  ['5', '#AA00AA'],
+  ['6', '#FFAA00'],
+  ['7', '#AAAAAA'],
+  ['8', '#555555'],
+  ['9', '#5555FF'],
+  ['a', '#55FF55'],
+  ['b', '#55FFFF'],
+  ['c', '#FF5555'],
+  ['d', '#FF55FF'],
+  ['e', '#FFFF55'],
+  ['f', '#FFFFFF'],
+]
+const MC_COLOR_MAP: Record<string, string> = Object.fromEntries(MC_COLORS)
+const OB_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789#$%&@'
+
+interface McStyle {
+  color: string
+  bold: boolean
+  italic: boolean
+  underline: boolean
+  strike: boolean
+  obfuscated: boolean
+}
+const MC_DEFAULT: McStyle = {
+  color: '#AAAAAA',
+  bold: false,
+  italic: false,
+  underline: false,
+  strike: false,
+  obfuscated: false,
+}
+
+/** Divide una línea del MOTD en tramos con color/formato (los códigos `§x`). */
+function parseMotdLine(line: string): { text: string; style: McStyle }[] {
+  const spans: { text: string; style: McStyle }[] = []
+  let style = MC_DEFAULT
+  let buffer = ''
+  const flush = () => {
+    if (buffer) {
+      spans.push({ text: buffer, style })
+      buffer = ''
+    }
+  }
+  for (let i = 0; i < line.length; i++) {
+    if (line[i] === '§' && i + 1 < line.length) {
+      const code = line[++i].toLowerCase()
+      const color = MC_COLOR_MAP[code]
+      flush()
+      if (color) style = { ...MC_DEFAULT, color } // un color (en Java) reinicia los formatos
+      else if (code === 'l') style = { ...style, bold: true }
+      else if (code === 'o') style = { ...style, italic: true }
+      else if (code === 'n') style = { ...style, underline: true }
+      else if (code === 'm') style = { ...style, strike: true }
+      else if (code === 'k') style = { ...style, obfuscated: true }
+      else if (code === 'r') style = MC_DEFAULT
+      continue
+    }
+    buffer += line[i]
+  }
+  flush()
+  return spans
+}
+
+/** §k: Minecraft cambia las letras por glifos aleatorios; acá se anima igual. */
+function Obfuscated({ text }: { text: string }) {
+  const [, tick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => tick((n) => n + 1), 90)
+    return () => window.clearInterval(id)
+  }, [])
+  return <>{Array.from(text, () => OB_ALPHABET[Math.floor(Math.random() * OB_ALPHABET.length)]).join('')}</>
+}
+
+function MotdPreview({ motd }: { motd: string }) {
+  const lines = motd.split('\n').slice(0, 2)
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">Vista previa</span>
+      <div className="rounded-md border border-border bg-[#0d0d0d] px-3 py-2 font-mono text-xs leading-relaxed">
+        {lines.map((line, index) => (
+          <div key={index} className="min-h-[1.2em] break-words whitespace-pre-wrap">
+            {parseMotdLine(line).map((span, i) => (
+              <span
+                key={i}
+                style={{
+                  color: span.style.color,
+                  fontWeight: span.style.bold ? 700 : 400,
+                  fontStyle: span.style.italic ? 'italic' : 'normal',
+                  textDecoration:
+                    [span.style.underline && 'underline', span.style.strike && 'line-through']
+                      .filter(Boolean)
+                      .join(' ') || 'none',
+                }}
+              >
+                {span.style.obfuscated ? <Obfuscated text={span.text} /> : span.text}
+              </span>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function MotdToolbar({ onInsert }: { onInsert: (code: string) => void }) {
+  const formats: { code: string; label: string; className?: string; title: string }[] = [
+    { code: 'l', label: 'B', className: 'font-bold', title: 'Negrita (§l)' },
+    { code: 'o', label: 'I', className: 'italic', title: 'Cursiva (§o)' },
+    { code: 'n', label: 'U', className: 'underline', title: 'Subrayado (§n)' },
+    { code: 'm', label: 'S', className: 'line-through', title: 'Tachado (§m)' },
+    { code: 'k', label: 'K', title: 'Glitch (§k)' },
+    { code: 'r', label: 'R', title: 'Quitar formato (§r)' },
+  ]
+  return (
+    <div className="flex flex-col gap-2 rounded-md border border-border p-2">
+      <div className="flex flex-wrap gap-1">
+        {MC_COLORS.map(([code, color]) => (
+          <button
+            key={code}
+            type="button"
+            title={`§${code}`}
+            aria-label={`Color §${code}`}
+            onClick={() => onInsert(code)}
+            className="size-5 rounded-sm border border-border"
+            style={{ backgroundColor: color }}
+          />
+        ))}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {formats.map((format) => (
+          <Button
+            key={format.code}
+            type="button"
+            variant="outline"
+            size="sm"
+            title={format.title}
+            aria-label={format.title}
+            className={cn('h-6 w-7 px-0', format.className)}
+            onClick={() => onInsert(format.code)}
+          >
+            {format.label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
 function SettingsSection({
   title,
   variant,
@@ -697,8 +854,28 @@ function SettingsForm({
   const [iconPreview, setIconPreview] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  const motdRef = useRef<HTMLTextAreaElement>(null)
+
   const set = <K extends keyof ServerSettings>(key: K, value: ServerSettings[K]) =>
     onChange({ [key]: value } as Partial<ServerSettings>)
+
+  /** Inserta `§<code>` en el cursor; si hay selección, la envuelve y la cierra con `§r`. */
+  const insertCode = (code: string) => {
+    const value = settings.motd
+    const el = motdRef.current
+    const start = el?.selectionStart ?? value.length
+    const end = el?.selectionEnd ?? value.length
+    const selected = value.slice(start, end)
+    const insert = selected ? `§${code}${selected}§r` : `§${code}`
+    const next = (value.slice(0, start) + insert + value.slice(end)).slice(0, MOTD_MAX)
+    set('motd', next)
+    const caret = Math.min(start + insert.length, next.length)
+    requestAnimationFrame(() => {
+      const node = motdRef.current
+      node?.focus()
+      node?.setSelectionRange(caret, caret)
+    })
+  }
 
   const pickIcon = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -742,17 +919,20 @@ function SettingsForm({
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickIcon} />
         </div>
 
-        <label className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2">
           <span className="text-sm">Descripción</span>
           <textarea
+            ref={motdRef}
             value={settings.motd}
-            maxLength={120}
+            maxLength={MOTD_MAX}
             rows={2}
             onChange={(event) => set('motd', event.target.value)}
             placeholder="Mi servidor de Minecraft"
-            className={cn(INPUT, 'h-auto py-2')}
+            className={cn(INPUT, 'h-auto resize-none py-2')}
           />
-        </label>
+          <MotdToolbar onInsert={insertCode} />
+          <MotdPreview motd={settings.motd} />
+        </div>
       </SettingsSection>
 
       {divider}
