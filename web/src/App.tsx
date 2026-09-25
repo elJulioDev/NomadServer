@@ -57,6 +57,13 @@ export default function App() {
       bridge.closeServer()
       return true
     }
+    // La notificación del foreground service abre el panel de ese servidor.
+    window.nomadOpenServer = (id: string) => {
+      openIdRef.current = id
+      setTab('panel')
+      setOpenId(id)
+      bridge.openServer(id)
+    }
   }, [])
 
   const open = (id: string, nextTab: Tab) => {

@@ -1,5 +1,6 @@
 package com.eljuliodev.servidormc
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -17,6 +18,7 @@ class MainActivity : ComponentActivity() {
         val webUi = WebUi(this, application as NomadApplication)
         ui = webUi
         setContentView(webUi.view)
+        webUi.openFromIntent(intent)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -24,6 +26,13 @@ class MainActivity : ComponentActivity() {
                 webUi.handleBack { handled -> if (!handled) finish() }
             }
         })
+    }
+
+    /** La notificación trae en el intent el id del servidor a abrir. */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        ui?.openFromIntent(intent)
     }
 
     override fun onResume() {
@@ -40,5 +49,10 @@ class MainActivity : ComponentActivity() {
         ui?.dispose()
         ui = null
         super.onDestroy()
+    }
+
+    companion object {
+        /** Extra del intent con el id del servidor a abrir (lo pone la notificación). */
+        const val EXTRA_SERVER_ID = "server_id"
     }
 }

@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.net.Uri
 import android.os.StatFs
@@ -116,6 +117,12 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
     /** Mientras la Activity no está visible no se serializa ni se empuja nada. */
     private var resumed = false
 
+    /** La web avisó con `ready()`. */
+    private var webReady = false
+
+    /** Servidor que pidió abrir la notificación; se aplica en cuanto la web está lista. */
+    private var pendingOpen: String? = null
+
     init {
         @SuppressLint("SetJavaScriptEnabled")
         view.settings.apply {
@@ -194,6 +201,26 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         view.onPause()
     }
 
+    /**
+     * Abre el panel del servidor indicado en el intent (lo usa la notificación). Si la web aún
+     * no cargó, queda pendiente hasta su `ready()`.
+     */
+    fun openFromIntent(intent: Intent?) {
+        val id = intent?.getStringExtra(MainActivity.EXTRA_SERVER_ID) ?: return
+        pendingOpen = id
+        applyPendingOpen()
+    }
+
+    private fun applyPendingOpen() {
+        if (!webReady) return
+        val id = pendingOpen ?: return
+        pendingOpen = null
+        view.evaluateJavascript(
+            "window.nomadOpenServer && window.nomadOpenServer(${JSONObject.quote(id)})",
+            null,
+        )
+    }
+
     /** Llama a `window.nomadHandleBack()`; [onResult] recibe true si la web consumió el "atrás". */
     fun handleBack(onResult: (Boolean) -> Unit) {
         view.evaluateJavascript("window.nomadHandleBack ? window.nomadHandleBack() : false") { result ->
@@ -212,6 +239,8 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         fun ready() = onMain {
             // La web se acaba de cargar (o recargar): fuerza un snapshot completo, no un delta.
             lastLogServer = null
+            webReady = true
+            applyPendingOpen()
             schedulePush()
         }
 

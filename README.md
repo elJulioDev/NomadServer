@@ -78,6 +78,10 @@ optimizar el mundo, explorar los archivos del servidor y editar sus ajustes.
 - **Apagado por inactividad** — si nadie entra en 2 minutos, el servidor se apaga solo; el
   contador se puede prolongar con **+1 minuto**.
 - **Detener y reiniciar** — botones separados; el reinicio reusa el `finally` del proceso.
+- **Segundo plano** — un servicio en primer plano mantiene el servidor vivo aunque cierres la app
+  o cambies a otra; una notificación fija muestra el icono, el nombre y los jugadores, con un
+  botón **Detener** al desplegarla. No se puede descartar deslizándola (solo desaparece al apagar
+  el servidor) y al tocarla abre el **panel** de ese servidor.
 - **Parada limpia** — envía `stop` por stdin y fuerza el cierre a los 10 s si no responde.
 
 **Consola**
@@ -185,6 +189,8 @@ flowchart LR
     H["WorldTools / WorldLayout<br/>RegionOptimizer"] --> A
     I["PlayersStore / FileBrowser"] --> A
     J["ServerProfileStore<br/>filesDir/servers.json"] --> A
+    B -->|"status activo"| S["ServerService<br/>foreground + notificación"]
+    S -->|"tocar / Detener"| A
 ```
 
 - **`NomadApplication`** crea un `ServerManager` por perfil y lo mantiene durante toda la vida de la app.
@@ -201,6 +207,9 @@ flowchart LR
   dimensiones, importan `.zip` y leen la semilla; **`RegionOptimizer`** reempaqueta las regiones y,
   opcionalmente, quita chunks nunca visitados.
 - **`PlayersStore` / `FileBrowser`** leen listas de jugadores y el directorio del servidor.
+- **`ServerService`** es un servicio en primer plano que se inicia cuando un servidor pasa a
+  activo y se detiene cuando se apaga; mantiene vivo el proceso en segundo plano y publica la
+  notificación (icono, nombre, jugadores, acción **Detener** y apertura del panel al tocarla).
 - **`JreInstaller`** extrae `assets/jre.zip` una sola vez y restaura los bits de ejecución de
   `bin/*` (los ZIP no guardan permisos).
 - **Stack**: Kotlin + coroutines/StateFlow · React 19 + TypeScript + Tailwind CSS 4 (Vite) ·
@@ -221,15 +230,16 @@ flowchart LR
 | 6 | OK | **Jugadores** — OP/deOP, kick, ban (con motivo), lista blanca e IPs/jugadores baneados |
 | 7 | OK | **Mundo** — semilla, espacio por dimensión, regenerar Nether/End, importar `.zip` |
 | 8 | OK | **Archivos y optimizador** — explorador de solo lectura y optimización con vista previa |
-| 9 | Pendiente | **Foreground service** — el server sobrevive en segundo plano y con la pantalla apagada |
+| 9 | OK | **Segundo plano** — servicio en primer plano con notificación (nombre, jugadores y Detener) |
 | 10 | Pendiente | **Túnel Playit.gg** — acceso público desde cualquier red, sin abrir puertos en el router |
 | 11 | Pendiente | **World border** — control del borde de mundo desde Ajustes |
 | 12 | Pendiente | **Backups** — copia del mundo antes de operaciones destructivas |
 | 13 | Pendiente | **Fabric y mods** — loader Fabric e instalación desde Modrinth (CurseForge después) |
 
-> [!WARNING]
-> Hasta la **Fase 9**, Android puede matar el proceso si la app pasa a segundo plano. Mientras
-> tanto, mantén NomadServer abierta (o la pantalla encendida) si quieres que el server siga vivo.
+> [!NOTE]
+> Con el servidor encendido, Android muestra una **notificación fija** (no se puede descartar)
+> mientras corre: es lo que mantiene el proceso vivo en segundo plano. Se quita sola al detener
+> el servidor.
 
 ---
 
@@ -237,7 +247,6 @@ flowchart LR
 
 Lo que todavía **no** está implementado y se planea:
 
-- **Foreground service** — que el servidor no muera al minimizar la app.
 - **Túnel Playit.gg** — jugar con amigos de otras redes sin abrir puertos.
 - **World border** — fijar el borde del mundo desde *Ajustes*.
 - **Backups** — copia del mundo antes de regenerar, importar u optimizar. Hoy esas acciones

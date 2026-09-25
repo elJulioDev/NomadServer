@@ -6,6 +6,8 @@ declare global {
     NomadBridge?: NomadBridge
     onNomadState?: (json: string) => void
     nomadHandleBack?: () => boolean
+    /** Abre el panel del servidor; lo invoca Kotlin al tocar la notificación. */
+    nomadOpenServer?: (id: string) => void
   }
 }
 

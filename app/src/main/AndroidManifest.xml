@@ -3,6 +3,10 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Servicio en primer plano para que el server siga vivo en segundo plano. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- API 33+: mostrar la notificación del server (con targetSdk 28 se concede por defecto). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application
         android:name=".NomadApplication"
@@ -18,12 +22,18 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Mantiene el server corriendo en segundo plano con una notificación fija. -->
+        <service
+            android:name=".ServerService"
+            android:exported="false" />
 
     </application>
 
