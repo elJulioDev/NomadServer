@@ -82,6 +82,10 @@ class ServerManager(private val context: Context, private val serverId: String) 
     @Volatile
     private var pendingRestart = false
 
+    /** Evita repetir el aviso de "puerto ocupado" dentro del mismo arranque. */
+    @Volatile
+    private var portHintShown = false
+
     private val serverDir: File
         get() = File(context.filesDir, "servers/$serverId").apply { mkdirs() }
 
@@ -99,8 +103,11 @@ class ServerManager(private val context: Context, private val serverId: String) 
         _tps.value = null
         _autoStopSeconds.value = null
         _seed.value = null
+        portHintShown = false
         scope.launch {
             try {
+                // Un cierre forzado puede dejar vivo al hijo del bundler con el puerto tomado.
+                killOrphans()
                 // Extrae el JRE en el primer arranque (tarda unos segundos).
                 val jreHome = JreInstaller.ensure(context, log = ::log)
                 if (!javaBinary.exists()) {
@@ -228,6 +235,8 @@ class ServerManager(private val context: Context, private val serverId: String) 
             if (p.isAlive) {
                 log("El servidor no respondió; forzando cierre")
                 p.destroy()
+                // El bundler puede dejar vivo a su hijo; hay que matarlo para liberar el puerto.
+                killOrphans()
             }
         }
     }
@@ -262,6 +271,22 @@ class ServerManager(private val context: Context, private val serverId: String) 
             }
             .orEmpty()
 
+    /**
+     * Mata procesos del server de este perfil que quedaran vivos (p. ej. el hijo del *bundler*
+     * tras un cierre forzado). Sin esto, el puerto 25565 sigue tomado y el arranque falla con
+     * "Address already in use".
+     */
+    private suspend fun killOrphans() {
+        val pids = serverPids()
+        if (pids.isEmpty()) return
+        log("Cerrando ${pids.size} proceso(s) anterior(es) del servidor…")
+        pids.forEach { pid ->
+            runCatching { android.os.Process.sendSignal(pid.toInt(), android.os.Process.SIGNAL_KILL) }
+        }
+        // Deja que el sistema libere el puerto antes de arrancar de nuevo.
+        delay(600)
+    }
+
     private fun readRssKb(pid: Long): Int? = runCatching {
         File("/proc/$pid/status").readLines()
             .firstOrNull { it.startsWith("VmRSS:") }
@@ -294,6 +319,10 @@ class ServerManager(private val context: Context, private val serverId: String) 
             _tps.value = (TPS_MAX - behind / 20.0).coerceIn(1.0, TPS_MAX)
         }
         seedRegex.find(line)?.let { m -> _seed.value = m.groupValues[1] }
+        if (!portHintShown && line.contains("Address already in use")) {
+            portHintShown = true
+            log("[NomadServer] El puerto 25565 estaba ocupado: quedaba un servidor anterior. Toca Detener y vuelve a Iniciar.")
+        }
         if (_status.value == Status.Starting && line.contains(DONE_MARKER)) {
             _startProgress.value = 100
             _tps.value = TPS_MAX
