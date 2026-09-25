@@ -43,6 +43,9 @@ dependencies {
     implementation(libs.androidx.activity)
     implementation(libs.androidx.webkit)
     testImplementation(libs.junit)
+    // `org.json` es un stub sin lógica en los tests JVM del android.jar; esta es la implementación
+    // real, sólo para tests (permite probar PlayersStore/ServerSettings.fromJson).
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
 }

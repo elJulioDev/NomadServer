@@ -78,6 +78,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         val ops: List<String>,
         val whitelist: List<String>,
         val bannedIps: List<String>,
+        val bannedPlayers: List<String>,
     )
 
     /** `ops.json` / `whitelist.json` por servidor; se invalidan al abrir y tras cada acción. */
@@ -85,6 +86,9 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
     /** Tamaños de las carpetas del mundo por servidor (se calculan a demanda). */
     private val worldCache = mutableMapOf<String, JSONObject>()
+
+    /** Último listado de archivos por servidor (navegación a demanda). */
+    private val filesCache = mutableMapOf<String, JSONObject>()
 
     /** `.zip` de mundo elegido para [importWorld]; el picker se lanza desde el bridge. */
     private var pendingWorldImport: String? = null
@@ -213,6 +217,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             activeId = id
             playersCache.remove(id)
             worldCache.remove(id)
+            filesCache.remove(id)
             observeActive()
             schedulePush()
         }
@@ -221,7 +226,9 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         fun fetchVersions() = onMain {
             scope.launch {
                 val list = withContext(Dispatchers.IO) {
-                    runCatching { ServerFiles.listVersions() }.getOrDefault(emptyList())
+                    runCatching {
+                        ServerFiles.listVersions(File(activity.cacheDir, ServerFiles.MANIFEST_CACHE_NAME))
+                    }.getOrDefault(emptyList())
                 }
                 versions = list
                 schedulePush()
@@ -230,12 +237,12 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
         /** Acciones sobre jugadores: van por consola, así que requieren el server encendido. */
         @JavascriptInterface
-        fun playerAction(id: String, action: String, name: String) = onMain {
+        fun playerAction(id: String, action: String, name: String, reason: String) = onMain {
             val command = when (action) {
                 "op" -> "op $name"
                 "deop" -> "deop $name"
                 "kick" -> "kick $name"
-                "ban" -> "ban $name"
+                "ban" -> if (reason.isBlank()) "ban $name" else "ban $name $reason"
                 "pardon" -> "pardon $name"
                 "whitelistAdd" -> "whitelist add $name"
                 "whitelistRemove" -> "whitelist remove $name"
@@ -315,6 +322,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                 settingsCache.remove(id)
                 playersCache.remove(id)
                 worldCache.remove(id)
+                filesCache.remove(id)
                 if (activeId == id) activeId = null
                 reload()
                 observeActive()
@@ -385,6 +393,38 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                     }.getOrNull()
                 }
                 if (info != null) worldCache[id] = info
+                schedulePush()
+            }
+        }
+
+        /** Lista un directorio del servidor (relativo a su carpeta); se entrega en `active.files`. */
+        @JavascriptInterface
+        fun listFiles(id: String, path: String) = onMain {
+            scope.launch {
+                val listing = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val entries = FileBrowser.list(File(activity.filesDir, "servers/$id"), path)
+                        JSONObject().apply {
+                            put("path", path)
+                            put(
+                                "entries",
+                                JSONArray().apply {
+                                    entries.forEach { entry ->
+                                        put(
+                                            JSONObject().apply {
+                                                put("name", entry.name)
+                                                put("directory", entry.directory)
+                                                put("size", entry.size)
+                                                put("modified", entry.modified)
+                                            },
+                                        )
+                                    }
+                                },
+                            )
+                        }
+                    }.getOrNull()
+                }
+                if (listing != null) filesCache[id] = listing
                 schedulePush()
             }
         }
@@ -547,9 +587,11 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                         put("ops", JSONArray(info.ops))
                         put("whitelist", JSONArray(info.whitelist))
                         put("bannedIps", JSONArray(info.bannedIps))
+                        put("bannedPlayers", JSONArray(info.bannedPlayers))
                     }
                     put("seed", manager.seed.value ?: JSONObject.NULL)
                     put("world", worldCache[id] ?: JSONObject.NULL)
+                    put("files", filesCache[id] ?: JSONObject.NULL)
                     put("tps", manager.tps.value ?: JSONObject.NULL)
                     put("startProgress", manager.startProgress.value)
                     put("autoStopSeconds", manager.autoStopSeconds.value ?: JSONObject.NULL)
@@ -587,7 +629,12 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
     private fun playersOf(id: String): PlayersInfo = playersCache.getOrPut(id) {
         val dir = File(activity.filesDir, "servers/$id")
-        PlayersInfo(PlayersStore.ops(dir), PlayersStore.whitelist(dir), PlayersStore.bannedIps(dir))
+        PlayersInfo(
+            ops = PlayersStore.ops(dir),
+            whitelist = PlayersStore.whitelist(dir),
+            bannedIps = PlayersStore.bannedIps(dir),
+            bannedPlayers = PlayersStore.bannedPlayers(dir),
+        )
     }
 
     private fun freeBytes(): Long =
@@ -597,21 +644,25 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
     }
 
-    /** Copia el `.zip` elegido y reemplaza el mundo; corre en IO y avisa por Toast. */
+    /** Copia el `.zip` elegido y reemplaza el mundo; corre en IO y va contando en la consola. */
     private fun importWorldZip(id: String, uri: Uri) {
+        val manager = app.managerFor(id)
         scope.launch {
+            manager.note("Importando mundo…")
             val result = withContext(Dispatchers.IO) {
                 runCatching {
                     val dir = File(activity.filesDir, "servers/$id")
                     val stream = activity.contentResolver.openInputStream(uri)
                         ?: error("No se pudo abrir el archivo")
-                    stream.use { WorldTools.importZip(dir, it).getOrThrow() }
+                    stream.use { WorldTools.importZip(dir, it, freeBytes()).getOrThrow() }
                 }
             }
             worldCache.remove(id)
+            filesCache.remove(id)
             result
-                .onSuccess { toast("Mundo importado") }
-                .onFailure { toast("Importación fallida: ${it.message}") }
+                .onSuccess { manager.note("Mundo importado") }
+                .onFailure { manager.note("Importación fallida: ${it.message}") }
+            toast(result.fold({ "Mundo importado" }, { "Importación fallida: ${it.message}" }))
             schedulePush()
         }
     }

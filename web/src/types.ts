@@ -1,6 +1,19 @@
 export type Status = 'Stopped' | 'Starting' | 'Running' | 'Stopping' | 'Error'
 
-export type Tab = 'panel' | 'console' | 'players' | 'world' | 'settings'
+export type Tab = 'panel' | 'console' | 'players' | 'world' | 'files' | 'settings'
+
+/** Entrada del explorador de archivos del servidor. */
+export interface FileEntry {
+  name: string
+  directory: boolean
+  size: number
+  modified: number
+}
+
+export interface FileListing {
+  path: string
+  entries: FileEntry[]
+}
 
 /** Tamaños en bytes de las partes del servidor y espacio libre del dispositivo. */
 export interface WorldSizes {
@@ -11,6 +24,10 @@ export interface WorldSizes {
   logs: number
   total: number
   free: number
+  worldFiles: number
+  netherFiles: number
+  endFiles: number
+  totalFiles: number
   /** Semilla leída de `level.dat` (string: es un long de 64 bits). Sirve con el server apagado. */
   seed: string | null
 }
@@ -85,6 +102,10 @@ export interface ActiveServer {
   whitelist: string[]
   /** IPs baneadas (de `banned-ips.json`). */
   bannedIps: string[]
+  /** Jugadores baneados (de `banned-players.json`). */
+  bannedPlayers: string[]
+  /** Último listado de archivos pedido con `listFiles` (null hasta entonces). */
+  files: FileListing | null
   /** Semilla del mundo, del comando `/seed` (null si no se pidió). */
   seed: string | null
   /** Tamaños calculados a demanda por `worldInfo` (null hasta entonces). */
@@ -115,9 +136,11 @@ export interface NomadBridge {
   ): void
   /** Trae el manifest de Mojang (se entrega en `snapshot.versions`). */
   fetchVersions(): void
-  /** `op` | `deop` | `kick` | `ban` | `pardon` | `whitelistAdd` | `whitelistRemove`. */
-  playerAction(id: string, action: string, name: string): void
+  /** `op` | `deop` | `kick` | `ban` | `pardon` | `whitelistAdd` | `whitelistRemove` | `banIp` | `pardonIp`. */
+  playerAction(id: string, action: string, name: string, reason: string): void
   setWhitelistEnabled(id: string, enabled: boolean): void
+  /** Lista un directorio del servidor (`path` relativo a su carpeta); llega en `active.files`. */
+  listFiles(id: string, path: string): void
   /** Cambia la versión del perfil (se descarga al próximo arranque; server apagado). */
   setVersion(id: string, version: string): void
   /** Pide la semilla al servidor (manda `seed` por consola; requiere estar encendido). */

@@ -17,6 +17,9 @@ object ServerFiles {
     /** Versión mínima soportada: el JRE empaquetado es jre25 (ver AGENTS.md). */
     private const val MIN_VERSION = "1.17"
 
+    /** Nombre del archivo donde se cachea el manifest en `cacheDir`. */
+    const val MANIFEST_CACHE_NAME = "version_manifest.json"
+
     private const val MANIFEST_TTL_MS = 60 * 60 * 1000L
     private var manifestCache: Pair<Long, String>? = null
 
@@ -63,30 +66,40 @@ object ServerFiles {
      * Descarga el `server.jar` de [version] (o de la última release si es null) si no está ya.
      * Si cambia la versión pedida respecto de `version.txt`, re-descarga.
      */
-    fun ensureServerJar(dir: File, version: String? = null, log: (String) -> Unit = {}): File {
+    fun ensureServerJar(
+        dir: File,
+        version: String? = null,
+        cacheFile: File? = null,
+        log: (String) -> Unit = {},
+    ): File {
         val jar = File(dir, "server.jar")
-        val stamp = File(dir, "version.txt")
-        val current = stamp.takeIf { it.exists() }?.readText()?.trim()
-        // Sin versión fijada se respeta lo instalado (no perseguir "la última" en cada arranque).
-        if (jar.exists() && !current.isNullOrEmpty() && (version == null || current == version)) return jar
+        val current = File(dir, "version.txt").takeIf { it.exists() }?.readText()?.trim()
+        if (!needsJarDownload(jar.exists(), current, version)) return jar
 
-        val versionId = version ?: latestRelease()
+        val versionId = version ?: latestRelease(cacheFile)
         log(if (version == null) "Consultando la última versión de Minecraft…" else "Preparando Minecraft $version…")
-        val serverUrl = JSONObject(fetch(versionUrlOf(versionId)))
+        val serverUrl = JSONObject(fetch(versionUrlOf(versionId, cacheFile)))
             .getJSONObject("downloads")
             .getJSONObject("server")
             .getString("url")
         log("Descargando server.jar…")
         jar.delete()
         download(serverUrl, jar)
-        stamp.writeText(versionId)
+        File(dir, "version.txt").writeText(versionId)
         log("server.jar listo ($versionId, ${jar.length() / 1_048_576} MB)")
         return jar
     }
 
+    /**
+     * ¿Hay que (re)descargar el jar? Sólo si falta, o si se pidió una versión distinta de la
+     * instalada. Sin versión fijada se respeta lo instalado (no perseguir "la última" siempre).
+     */
+    internal fun needsJarDownload(jarExists: Boolean, installed: String?, requested: String?): Boolean =
+        !(jarExists && !installed.isNullOrEmpty() && (requested == null || installed == requested))
+
     /** Versiones vanilla (releases) soportadas por el JRE empaquetado, de nueva a vieja. */
-    fun listVersions(): List<McVersion> {
-        val versions = JSONObject(fetchManifest()).getJSONArray("versions")
+    fun listVersions(cacheFile: File? = null): List<McVersion> {
+        val versions = JSONObject(fetchManifest(cacheFile)).getJSONArray("versions")
         return buildList {
             for (i in 0 until versions.length()) {
                 val v = versions.getJSONObject(i)
@@ -102,11 +115,11 @@ object ServerFiles {
     fun installedVersion(dir: File): String? =
         File(dir, "version.txt").takeIf { it.exists() }?.readText()?.trim()
 
-    private fun latestRelease(): String =
-        JSONObject(fetchManifest()).getJSONObject("latest").getString("release")
+    private fun latestRelease(cacheFile: File?): String =
+        JSONObject(fetchManifest(cacheFile)).getJSONObject("latest").getString("release")
 
-    private fun versionUrlOf(id: String): String {
-        val versions = JSONObject(fetchManifest()).getJSONArray("versions")
+    private fun versionUrlOf(id: String, cacheFile: File?): String {
+        val versions = JSONObject(fetchManifest(cacheFile)).getJSONArray("versions")
         for (i in 0 until versions.length()) {
             val version = versions.getJSONObject(i)
             if (version.getString("id") == id) return version.getString("url")
@@ -114,10 +127,26 @@ object ServerFiles {
         error("Versión $id no encontrada en el manifest")
     }
 
-    private fun fetchManifest(): String {
+    /** Manifest de Mojang: memoria (1 h) → archivo ([cacheFile], 1 h) → red. */
+    private fun fetchManifest(cacheFile: File? = null): String {
         val now = System.currentTimeMillis()
         manifestCache?.let { (at, body) -> if (now - at < MANIFEST_TTL_MS) return body }
-        return fetch(VERSION_MANIFEST).also { manifestCache = now to it }
+        if (cacheFile != null && cacheFile.exists() && now - cacheFile.lastModified() < MANIFEST_TTL_MS) {
+            val body = runCatching { cacheFile.readText() }.getOrNull()
+            if (!body.isNullOrEmpty()) {
+                manifestCache = now to body
+                return body
+            }
+        }
+        return fetch(VERSION_MANIFEST).also { body ->
+            manifestCache = now to body
+            if (cacheFile != null) {
+                runCatching {
+                    cacheFile.parentFile?.mkdirs()
+                    cacheFile.writeText(body)
+                }
+            }
+        }
     }
 
     /** Compara versiones tipo "1.21.4" por partes numéricas (los snapshots no llegan acá). */

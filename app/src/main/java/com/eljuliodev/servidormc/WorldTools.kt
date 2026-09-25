@@ -8,7 +8,7 @@ import java.io.InputStream
 import java.util.zip.GZIPInputStream
 import java.util.zip.ZipInputStream
 
-/** Tamaños en bytes de las partes del servidor y espacio libre del dispositivo. */
+/** Tamaños/nº de archivos de las partes del servidor y espacio libre del dispositivo. */
 data class WorldSizes(
     val world: Long,
     val nether: Long,
@@ -17,6 +17,10 @@ data class WorldSizes(
     val logs: Long,
     val total: Long,
     val free: Long,
+    val worldFiles: Long,
+    val netherFiles: Long,
+    val endFiles: Long,
+    val totalFiles: Long,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("world", world)
@@ -26,6 +30,10 @@ data class WorldSizes(
         put("logs", logs)
         put("total", total)
         put("free", free)
+        put("worldFiles", worldFiles)
+        put("netherFiles", netherFiles)
+        put("endFiles", endFiles)
+        put("totalFiles", totalFiles)
     }
 }
 
@@ -40,6 +48,9 @@ object WorldTools {
 
     /** Límite de descompresión del `.zip` importado (protección básica contra zips enormes). */
     private const val MAX_IMPORT_BYTES = 4L * 1024 * 1024 * 1024
+
+    /** Margen que se deja libre en el dispositivo al importar un mundo. */
+    private const val FREE_MARGIN_BYTES = 64L * 1024 * 1024
 
     /** `level-name` de `server.properties` (por defecto "world"). */
     fun levelName(dir: File): String {
@@ -56,19 +67,36 @@ object WorldTools {
     /** Tamaño en bytes de cada parte del servidor + espacio libre del dispositivo. */
     fun sizes(dir: File, freeBytes: Long): WorldSizes {
         val name = levelName(dir)
-        fun sizeOf(path: String): Long {
+        fun statOf(path: String): Pair<Long, Long> {
             val file = File(dir, path)
-            if (!file.exists()) return 0L
-            return file.walkTopDown().filter { it.isFile }.sumOf { it.length() }
+            if (!file.exists()) return 0L to 0L
+            var bytes = 0L
+            var files = 0L
+            file.walkTopDown().forEach { child ->
+                if (child.isFile) {
+                    bytes += child.length()
+                    files++
+                }
+            }
+            return bytes to files
         }
+        val (world, worldFiles) = statOf(name)
+        val (nether, netherFiles) = statOf("${name}_nether")
+        val (end, endFiles) = statOf("${name}_the_end")
+        val (logs, _) = statOf("logs")
+        val (total, totalFiles) = statOf(".")
         return WorldSizes(
-            world = sizeOf(name),
-            nether = sizeOf("${name}_nether"),
-            end = sizeOf("${name}_the_end"),
+            world = world,
+            nether = nether,
+            end = end,
             jar = File(dir, "server.jar").takeIf { it.exists() }?.length() ?: 0L,
-            logs = sizeOf("logs"),
-            total = sizeOf("."),
+            logs = logs,
+            total = total,
             free = freeBytes,
+            worldFiles = worldFiles,
+            netherFiles = netherFiles,
+            endFiles = endFiles,
+            totalFiles = totalFiles,
         )
     }
 
@@ -185,10 +213,10 @@ object WorldTools {
      * Reemplaza `<level-name>/` con el mundo del `.zip`. Acepta el `level.dat` en la raíz o dentro
      * de una única carpeta contenedora. Rechaza entradas que salgan del destino (zip-slip).
      */
-    fun importZip(dir: File, zip: InputStream): Result<Unit> = runCatching {
+    fun importZip(dir: File, zip: InputStream, freeBytes: Long = -1L): Result<Unit> = runCatching {
         val tmp = File(dir, "world-import").apply { deleteRecursively(); mkdirs() }
         try {
-            extractSafe(zip, tmp)
+            extractSafe(zip, tmp, freeBytes)
             val root = worldRoot(tmp) ?: error("El .zip no contiene un mundo (falta level.dat)")
             val target = File(dir, levelName(dir))
             target.deleteRecursively()
@@ -207,7 +235,7 @@ object WorldTools {
         return only.takeIf { File(it, "level.dat").exists() }
     }
 
-    private fun extractSafe(zip: InputStream, dest: File) {
+    private fun extractSafe(zip: InputStream, dest: File, freeBytes: Long) {
         val root = dest.canonicalPath + File.separator
         var written = 0L
         ZipInputStream(zip).use { input ->
@@ -228,6 +256,9 @@ object WorldTools {
                             if (read <= 0) break
                             written += read
                             if (written > MAX_IMPORT_BYTES) error("El .zip es demasiado grande")
+                            if (freeBytes > 0 && written > freeBytes - FREE_MARGIN_BYTES) {
+                                error("No hay espacio libre suficiente para importar el mundo")
+                            }
                             output.write(buffer, 0, read)
                         }
                     }

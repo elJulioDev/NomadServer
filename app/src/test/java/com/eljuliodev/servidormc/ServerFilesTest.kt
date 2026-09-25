@@ -62,4 +62,14 @@ class ServerFilesTest {
         assertFalse(ServerFiles.isAtLeast("1.8.9", "1.17"))
         assertFalse(ServerFiles.isAtLeast("24w14a", "1.17"))
     }
+
+    @Test
+    fun `jar only re-downloads when needed`() {
+        assertTrue(ServerFiles.needsJarDownload(jarExists = false, installed = null, requested = null))
+        // Sin versión fijada se respeta lo instalado (no perseguir "la última" siempre).
+        assertFalse(ServerFiles.needsJarDownload(jarExists = true, installed = "1.21.8", requested = null))
+        assertFalse(ServerFiles.needsJarDownload(jarExists = true, installed = "1.21.8", requested = "1.21.8"))
+        assertTrue(ServerFiles.needsJarDownload(jarExists = true, installed = "1.21.8", requested = "1.20.1"))
+        assertTrue(ServerFiles.needsJarDownload(jarExists = true, installed = null, requested = "1.21.8"))
+    }
 }

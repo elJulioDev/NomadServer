@@ -82,6 +82,13 @@ class WorldToolsTest {
         assertTrue(WorldTools.importZip(dir, ByteArrayInputStream(zip("readme.txt" to "hola"))).isFailure)
     }
 
+    @Test
+    fun `importing fails when there is not enough free space`() {
+        val dir = temp.newFolder()
+        val bytes = zip("level.dat" to "x".repeat(1000))
+        assertTrue(WorldTools.importZip(dir, ByteArrayInputStream(bytes), freeBytes = 100L).isFailure)
+    }
+
     private fun levelDat(seed: Long): ByteArray {
         val out = ByteArrayOutputStream()
         GZIPOutputStream(out).use { gzip ->

@@ -3,10 +3,38 @@ import {
   type NomadBridge,
   type ServerSettings,
   type ServerSummary,
+  type FileEntry,
+  type FileListing,
   type Snapshot,
   type VersionOption,
   type WorldSizes,
 } from './types'
+
+const MOCK_TREE: Record<string, FileEntry[]> = {
+  '': [
+    { name: 'world', directory: true, size: 0, modified: 0 },
+    { name: 'world_nether', directory: true, size: 0, modified: 0 },
+    { name: 'world_the_end', directory: true, size: 0, modified: 0 },
+    { name: 'logs', directory: true, size: 0, modified: 0 },
+    { name: 'server.jar', directory: false, size: 52_000_000, modified: 0 },
+    { name: 'server.properties', directory: false, size: 1_240, modified: 0 },
+    { name: 'eula.txt', directory: false, size: 12, modified: 0 },
+    { name: 'ops.json', directory: false, size: 160, modified: 0 },
+    { name: 'whitelist.json', directory: false, size: 80, modified: 0 },
+    { name: 'usercache.json', directory: false, size: 320, modified: 0 },
+  ],
+  world: [
+    { name: 'data', directory: true, size: 0, modified: 0 },
+    { name: 'playerdata', directory: true, size: 0, modified: 0 },
+    { name: 'region', directory: true, size: 0, modified: 0 },
+    { name: 'level.dat', directory: false, size: 2_048, modified: 0 },
+    { name: 'level.dat_old', directory: false, size: 2_048, modified: 0 },
+  ],
+  logs: [
+    { name: 'latest.log', directory: false, size: 345_678, modified: 0 },
+    { name: '2026-09-24-1.log.gz', directory: false, size: 20_000, modified: 0 },
+  ],
+}
 
 const MOCK_VERSIONS: VersionOption[] = [
   { id: '1.21.8', type: 'release', releaseTime: '' },
@@ -49,6 +77,8 @@ export function createMock(): NomadBridge {
   const autoStop: Record<string, number | null> = {}
   const seeds: Record<string, string | null> = {}
   const bannedIps: Record<string, string[]> = {}
+  const bannedPlayers: Record<string, string[]> = {}
+  const fileListings: Record<string, FileListing | null> = {}
   const worlds: Record<string, WorldSizes | null> = {}
   const timers = new Map<string, number>()
   let versions: VersionOption[] | undefined
@@ -76,6 +106,8 @@ export function createMock(): NomadBridge {
         ops: ops[active.id] ?? [],
         whitelist: whitelist[active.id] ?? [],
         bannedIps: bannedIps[active.id] ?? [],
+        bannedPlayers: bannedPlayers[active.id] ?? [],
+        files: fileListings[active.id] ?? null,
         seed: seeds[active.id] ?? null,
         world: worlds[active.id] ?? null,
       }
@@ -209,6 +241,10 @@ export function createMock(): NomadBridge {
         logs: 345_678,
         total: 78_000_000,
         free: 42_000_000_000,
+        worldFiles: 842,
+        netherFiles: 96,
+        endFiles: 41,
+        totalFiles: 1013,
         seed: '-4172144997902289642',
       }
       emit()
@@ -216,6 +252,10 @@ export function createMock(): NomadBridge {
     setVersion: (id, version) => {
       const server = servers.find((s) => s.id === id)
       if (server) server.mcVersion = version || null
+      emit()
+    },
+    listFiles: (id, path) => {
+      fileListings[id] = { path, entries: MOCK_TREE[path] ?? [] }
       emit()
     },
     regenerateWorld: (id, dimension) => {
@@ -228,7 +268,7 @@ export function createMock(): NomadBridge {
       push(id, 'Importando mundo… (mock)')
       emit()
     },
-    playerAction: (id, action, name) => {
+    playerAction: (id, action, name, reason) => {
       const list = (ops[id] ??= [])
       const white = (whitelist[id] ??= [])
       switch (action) {
@@ -241,12 +281,16 @@ export function createMock(): NomadBridge {
           push(id, `Made ${name} no longer a server operator`)
           break
         case 'kick':
-          push(id, `Kicked ${name}`)
+          push(id, reason ? `Kicked ${name}: ${reason}` : `Kicked ${name}`)
           break
-        case 'ban':
-          push(id, `Banned ${name}`)
+        case 'ban': {
+          const bans = (bannedPlayers[id] ??= [])
+          if (!bans.includes(name)) bans.push(name)
+          push(id, reason ? `Banned ${name}: ${reason}` : `Banned ${name}`)
           break
+        }
         case 'pardon':
+          bannedPlayers[id] = (bannedPlayers[id] ?? []).filter((n) => n !== name)
           push(id, `Unbanned ${name}`)
           break
         case 'whitelistAdd':

@@ -221,6 +221,7 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'console', label: 'Consola', icon: 'terminal' },
   { id: 'players', label: 'Jugadores', icon: 'users' },
   { id: 'world', label: 'Mundo', icon: 'globe' },
+  { id: 'files', label: 'Archivos', icon: 'folder' },
   { id: 'settings', label: 'Ajustes', icon: 'sliders' },
 ]
 
@@ -292,9 +293,12 @@ export function DetailScreen({
               active={active}
               status={status}
               settings={active?.settings ?? DEFAULT_SETTINGS}
-              onAction={(action, name) => bridge.playerAction(server.id, action, name)}
+              onAction={(action, name, reason) => bridge.playerAction(server.id, action, name, reason ?? '')}
               onWhitelistEnabled={(enabled) => bridge.setWhitelistEnabled(server.id, enabled)}
             />
+          )}
+          {tab === 'files' && (
+            <FilesTab active={active} onList={(path) => bridge.listFiles(server.id, path)} />
           )}
           {tab === 'world' && (
             <WorldTab
@@ -377,7 +381,7 @@ function PlayersTab({
   active: ActiveServer | null
   status: Status
   settings: ServerSettings
-  onAction: (action: string, name: string) => void
+  onAction: (action: string, name: string, reason?: string) => void
   onWhitelistEnabled: (enabled: boolean) => void
 }) {
   const running = status === 'Running'
@@ -385,8 +389,10 @@ function PlayersTab({
   const ops = new Set((active?.ops ?? []).map((name) => name.toLowerCase()))
   const whitelist = active?.whitelist ?? []
   const bannedIps = active?.bannedIps ?? []
+  const bannedPlayers = active?.bannedPlayers ?? []
   const [name, setName] = useState('')
   const [ip, setIp] = useState('')
+  const [reason, setReason] = useState('')
   const [pending, setPending] = useState<{ action: 'kick' | 'ban'; name: string } | null>(null)
 
   const addToWhitelist = () => {
@@ -424,7 +430,14 @@ function PlayersTab({
                       className={isOp ? 'text-success' : ''}
                     />
                     <IconButton icon="userMinus" label={`Kickear a ${player}`} onClick={() => setPending({ action: 'kick', name: player })} />
-                    <IconButton icon="ban" label={`Banear a ${player}`} onClick={() => setPending({ action: 'ban', name: player })} />
+                    <IconButton
+                      icon="ban"
+                      label={`Banear a ${player}`}
+                      onClick={() => {
+                        setReason('')
+                        setPending({ action: 'ban', name: player })
+                      }}
+                    />
                   </div>
                 </div>
               )
@@ -443,6 +456,9 @@ function PlayersTab({
           <SettingRow label="Activar lista blanca" hint="Solo entran los jugadores añadidos">
             <Switch checked={settings.whitelist} onChange={onWhitelistEnabled} label="Lista blanca" />
           </SettingRow>
+          <p className="text-xs text-muted-foreground">
+            Se escribe white-list y enforce-whitelist en server.properties.
+          </p>
           <Separator />
           <div className="flex items-center gap-2">
             <input
@@ -532,21 +548,79 @@ function PlayersTab({
         </PanelContent>
       </Panel>
 
-      {pending && (
+      <div className="stripe-divider border-x border-line" />
+
+      <Panel className="screen-line-top-none">
+        <PanelHeader>
+          <PanelTitle className="text-lg">Jugadores baneados</PanelTitle>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-4">
+          {bannedPlayers.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No hay jugadores baneados.</p>
+          ) : (
+            bannedPlayers.map((entry) => (
+              <div key={entry} className="flex items-center gap-3">
+                <PlayerHead name={entry} />
+                <span className="min-w-0 flex-1 truncate text-sm">{entry}</span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={!running}
+                  onClick={() => onAction('pardon', entry)}
+                >
+                  Desbanear
+                </Button>
+              </div>
+            ))
+          )}
+          {!running && bannedPlayers.length > 0 && (
+            <p className="text-xs text-muted-foreground">Enciende el servidor para desbanear.</p>
+          )}
+        </PanelContent>
+      </Panel>
+
+      {pending?.action === 'kick' && (
         <ConfirmDialog
-          title={`¿${pending.action === 'ban' ? 'Banear' : 'Kickear'} a ${pending.name}?`}
-          body={
-            pending.action === 'ban'
-              ? 'No podrá volver a entrar hasta que lo desbanees.'
-              : 'Podrá volver a entrar enseguida.'
-          }
-          confirm={pending.action === 'ban' ? 'Banear' : 'Kickear'}
+          title={`¿Kickear a ${pending.name}?`}
+          body="Podrá volver a entrar enseguida."
+          confirm="Kickear"
           onConfirm={() => {
-            onAction(pending.action, pending.name)
+            onAction('kick', pending.name)
             setPending(null)
           }}
           onDismiss={() => setPending(null)}
         />
+      )}
+      {pending?.action === 'ban' && (
+        <Modal
+          onDismiss={() => setPending(null)}
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setPending(null)}>
+                Cancelar
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => {
+                  onAction('ban', pending.name, reason.trim())
+                  setReason('')
+                  setPending(null)
+                }}
+              >
+                Banear
+              </Button>
+            </div>
+          }
+        >
+          <p className="text-sm font-medium">¿Banear a {pending.name}?</p>
+          <p className="text-sm text-muted-foreground">No podrá volver a entrar hasta que lo desbanees.</p>
+          <input
+            value={reason}
+            onChange={(event) => setReason(event.target.value)}
+            placeholder="Motivo (opcional)"
+            className={INPUT}
+          />
+        </Modal>
       )}
     </>
   )
@@ -559,12 +633,27 @@ const formatBytes = (bytes: number) => {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
 }
 
-function SpaceRow({ icon, label, value, percent }: { icon: IconName; label: string; value: string; percent: number }) {
+function SpaceRow({
+  icon,
+  label,
+  value,
+  percent,
+  detail,
+}: {
+  icon: IconName
+  label: string
+  value: string
+  percent: number
+  detail?: string
+}) {
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-3">
         <Icon name={icon} className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 text-sm">{label}</span>
+        <span className="min-w-0 flex-1 truncate text-sm">
+          {label}
+          {detail && <span className="ml-2 text-xs text-muted-foreground">{detail}</span>}
+        </span>
         <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{value}</span>
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
@@ -644,15 +733,35 @@ function WorldTab({
         <PanelContent className="flex flex-col gap-4">
           {world ? (
             <>
-              <SpaceRow icon="globe" label="Mundo" value={formatBytes(world.world)} percent={usage(world.world)} />
-              <SpaceRow icon="globe" label="Nether" value={formatBytes(world.nether)} percent={usage(world.nether)} />
-              <SpaceRow icon="globe" label="End" value={formatBytes(world.end)} percent={usage(world.end)} />
+              <SpaceRow
+                icon="globe"
+                label="Mundo"
+                value={formatBytes(world.world)}
+                percent={usage(world.world)}
+                detail={`${world.worldFiles} archivos`}
+              />
+              <SpaceRow
+                icon="globe"
+                label="Nether"
+                value={formatBytes(world.nether)}
+                percent={usage(world.nether)}
+                detail={`${world.netherFiles} archivos`}
+              />
+              <SpaceRow
+                icon="globe"
+                label="End"
+                value={formatBytes(world.end)}
+                percent={usage(world.end)}
+                detail={`${world.endFiles} archivos`}
+              />
               <SpaceRow icon="box" label="server.jar" value={formatBytes(world.jar)} percent={usage(world.jar)} />
               <SpaceRow icon="terminal" label="Logs" value={formatBytes(world.logs)} percent={usage(world.logs)} />
               <Separator />
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Total del servidor</span>
-                <span className="font-mono tabular-nums">{formatBytes(world.total)}</span>
+                <span className="font-mono tabular-nums">
+                  {formatBytes(world.total)} · {world.totalFiles} archivos
+                </span>
               </div>
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Libre en el dispositivo</span>
@@ -724,6 +833,72 @@ function WorldTab({
         />
       )}
     </>
+  )
+}
+
+function FilesTab({ active, onList }: { active: ActiveServer | null; onList: (path: string) => void }) {
+  const listing = active?.files ?? null
+  const path = listing?.path ?? ''
+  const entries = listing?.entries ?? []
+  const segments = path.split('/').filter(Boolean)
+
+  // Al abrir la pestaña se lista la raíz del servidor (a demanda, fuera del push de 250 ms).
+  useEffect(() => {
+    onList('')
+  }, [])
+
+  return (
+    <Panel className="screen-line-top-none">
+      <PanelHeader>
+        <PanelTitle className="text-lg">Archivos</PanelTitle>
+      </PanelHeader>
+      <PanelContent className="flex flex-col gap-0 p-0">
+        <div className="screen-line-bottom flex flex-wrap items-center gap-1 px-4 py-3 text-xs text-muted-foreground">
+          <button type="button" onClick={() => onList('')} className="hover:text-foreground">
+            servidor
+          </button>
+          {segments.map((segment, index) => (
+            <span key={index} className="inline-flex items-center gap-1">
+              <span>/</span>
+              <button
+                type="button"
+                onClick={() => onList(segments.slice(0, index + 1).join('/'))}
+                className="hover:text-foreground"
+              >
+                {segment}
+              </button>
+            </span>
+          ))}
+        </div>
+
+        {entries.length === 0 ? (
+          <p className="px-4 py-10 text-center text-sm text-muted-foreground">Carpeta vacía.</p>
+        ) : (
+          entries.map((entry) => (
+            <button
+              key={entry.name}
+              type="button"
+              disabled={!entry.directory}
+              onClick={() => onList(path ? `${path}/${entry.name}` : entry.name)}
+              className="screen-line-bottom flex items-center gap-3 px-4 py-3 text-left active:bg-muted/40 disabled:active:bg-transparent"
+            >
+              <Icon
+                name={entry.directory ? 'folder' : 'file'}
+                className={cn('size-4 shrink-0', entry.directory ? 'text-info' : 'text-muted-foreground')}
+              />
+              <span className="min-w-0 flex-1 truncate text-sm">{entry.name}</span>
+              {entry.directory ? (
+                <Icon name="chevronRight" className="size-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">
+                  {formatBytes(entry.size)}
+                </span>
+              )}
+            </button>
+          ))
+        )}
+      </PanelContent>
+    </Panel>
   )
 }
 
@@ -1463,7 +1638,11 @@ function SettingsTab({
 }) {
   // El borrador se inicializa al abrir la pestaña; los pushes del snapshot no lo pisan.
   const [draft, setDraft] = useState(settings)
+  const [versionQuery, setVersionQuery] = useState('')
   const dirty = JSON.stringify(draft) !== JSON.stringify(settings)
+  const versionOptions = (versions ?? []).filter((version) =>
+    version.id.toLowerCase().includes(versionQuery.trim().toLowerCase()),
+  )
 
   useEffect(() => {
     if (!versions) onNeedVersions()
@@ -1498,20 +1677,29 @@ function SettingsTab({
           <PanelTitle className="text-lg">Software</PanelTitle>
         </PanelHeader>
         <PanelContent className="flex flex-col gap-3">
-          <SettingRow label="Versión de Minecraft" hint="Se descarga la próxima vez que enciendas">
-            <Select value={mcVersion ?? ''} onChange={onVersion} className="w-28" disabled={locked}>
-              {mcVersion && !(versions ?? []).some((version) => version.id === mcVersion) && (
-                <option value={mcVersion}>{mcVersion}</option>
-              )}
-              {(versions ?? []).map((version) => (
-                <option key={version.id} value={version.id}>
-                  {version.id}
-                </option>
-              ))}
-            </Select>
-          </SettingRow>
+          <label className="flex flex-col gap-2">
+            <span className="text-sm">Versión de Minecraft</span>
+            <input
+              value={versionQuery}
+              onChange={(event) => setVersionQuery(event.target.value)}
+              placeholder="Buscar (p. ej. 1.20)"
+              disabled={locked}
+              className={INPUT}
+            />
+          </label>
+          <Select value={mcVersion ?? ''} onChange={onVersion} className="w-full" disabled={locked}>
+            {mcVersion && !(versions ?? []).some((version) => version.id === mcVersion) && (
+              <option value={mcVersion}>{mcVersion}</option>
+            )}
+            {versionOptions.map((version) => (
+              <option key={version.id} value={version.id}>
+                {version.id}
+              </option>
+            ))}
+          </Select>
           <p className="text-xs text-muted-foreground">
-            Cambiar de versión puede dañar el mundo y todavía no hay backup. Solo 1.17 o superior.
+            Se descarga la próxima vez que enciendas. Cambiar de versión puede dañar el mundo y
+            todavía no hay backup. Solo 1.17 o superior.
           </p>
         </PanelContent>
       </Panel>

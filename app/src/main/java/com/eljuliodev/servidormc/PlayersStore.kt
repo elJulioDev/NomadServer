@@ -15,6 +15,8 @@ object PlayersStore {
 
     fun bannedIps(dir: File): List<String> = entries(File(dir, "banned-ips.json"), "ip")
 
+    fun bannedPlayers(dir: File): List<String> = entries(File(dir, "banned-players.json"), "name")
+
     private fun entries(file: File, key: String): List<String> {
         if (!file.exists()) return emptyList()
         return runCatching {

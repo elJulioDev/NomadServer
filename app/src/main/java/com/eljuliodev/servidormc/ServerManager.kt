@@ -111,7 +111,12 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 val dir = serverDir
                 ServerFiles.ensureEula(dir)
                 ServerFiles.ensureProperties(dir, maxPlayers = maxPlayers, log = ::log)
-                val jar = ServerFiles.ensureServerJar(dir, mcVersion, log = ::log)
+                val jar = ServerFiles.ensureServerJar(
+                    dir,
+                    mcVersion,
+                    File(context.cacheDir, ServerFiles.MANIFEST_CACHE_NAME),
+                    log = ::log,
+                )
 
                 val pb = ProcessBuilder(
                     javaBinary.absolutePath,
@@ -173,6 +178,11 @@ class ServerManager(private val context: Context, private val serverId: String) 
         pendingRestart = true
         log("Reiniciando servidor…")
         stop()
+    }
+
+    /** Escribe una línea en la consola del servidor desde la app (p. ej. progreso de importación). */
+    fun note(message: String) {
+        log("[NomadServer] $message")
     }
 
     /** Suma un minuto a la ventana de auto-apagado (como el botón de Aternos). */
