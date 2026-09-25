@@ -5,6 +5,7 @@ import {
   type ServerSummary,
   type Snapshot,
   type VersionOption,
+  type WorldSizes,
 } from './types'
 
 const MOCK_VERSIONS: VersionOption[] = [
@@ -46,6 +47,8 @@ export function createMock(): NomadBridge {
   const ram: Record<string, number | null> = {}
   const progress: Record<string, number> = {}
   const autoStop: Record<string, number | null> = {}
+  const seeds: Record<string, string | null> = {}
+  const worlds: Record<string, WorldSizes | null> = {}
   const timers = new Map<string, number>()
   let versions: VersionOption[] | undefined
   let activeId: string | null = null
@@ -71,6 +74,8 @@ export function createMock(): NomadBridge {
         autoStopSeconds: autoStop[active.id] ?? null,
         ops: ops[active.id] ?? [],
         whitelist: whitelist[active.id] ?? [],
+        seed: seeds[active.id] ?? null,
+        world: worlds[active.id] ?? null,
       }
       lastLogId = active.id
       lastLogCount = list.length
@@ -185,6 +190,33 @@ export function createMock(): NomadBridge {
     setServerIcon: () => {},
     fetchVersions: () => {
       versions = MOCK_VERSIONS
+      emit()
+    },
+    requestSeed: (id) => {
+      seeds[id] = String(Math.floor(Math.random() * 2e17) - 1e17)
+      push(id, `Seed: [${seeds[id]}]`)
+      emit()
+    },
+    worldInfo: (id) => {
+      worlds[id] = {
+        world: 12_345_678,
+        nether: 2_345_678,
+        end: 1_234_567,
+        jar: 52_000_000,
+        logs: 345_678,
+        total: 78_000_000,
+        free: 42_000_000_000,
+      }
+      emit()
+    },
+    regenerateWorld: (id, dimension) => {
+      const current = worlds[id]
+      if (current) worlds[id] = dimension === 'nether' ? { ...current, nether: 0 } : { ...current, end: 0 }
+      push(id, dimension === 'nether' ? 'Regenerando el Nether…' : 'Regenerando el End…')
+      emit()
+    },
+    importWorld: (id) => {
+      push(id, 'Importando mundo… (mock)')
       emit()
     },
     playerAction: (id, action, name) => {

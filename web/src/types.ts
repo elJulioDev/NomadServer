@@ -1,6 +1,17 @@
 export type Status = 'Stopped' | 'Starting' | 'Running' | 'Stopping' | 'Error'
 
-export type Tab = 'panel' | 'console' | 'players' | 'settings'
+export type Tab = 'panel' | 'console' | 'players' | 'world' | 'settings'
+
+/** Tamaños en bytes de las partes del servidor y espacio libre del dispositivo. */
+export interface WorldSizes {
+  world: number
+  nether: number
+  end: number
+  jar: number
+  logs: number
+  total: number
+  free: number
+}
 
 /** Una versión vanilla del manifest de Mojang. */
 export interface VersionOption {
@@ -68,6 +79,10 @@ export interface ActiveServer {
   ops: string[]
   /** Nombres en la lista blanca (de `whitelist.json`). */
   whitelist: string[]
+  /** Semilla del mundo, del comando `/seed` (null si no se pidió). */
+  seed: string | null
+  /** Tamaños calculados a demanda por `worldInfo` (null hasta entonces). */
+  world: WorldSizes | null
 }
 
 export interface Snapshot {
@@ -97,6 +112,14 @@ export interface NomadBridge {
   /** `op` | `deop` | `kick` | `ban` | `pardon` | `whitelistAdd` | `whitelistRemove`. */
   playerAction(id: string, action: string, name: string): void
   setWhitelistEnabled(id: string, enabled: boolean): void
+  /** Pide la semilla al servidor (manda `seed` por consola; requiere estar encendido). */
+  requestSeed(id: string): void
+  /** Calcula tamaños/espacio; el resultado llega en `active.world`. */
+  worldInfo(id: string): void
+  /** `nether` | `end`: borra esa dimensión para que se regenere (server apagado). */
+  regenerateWorld(id: string, dimension: string): void
+  /** Abre el selector de `.zip` y reemplaza el mundo (server apagado). */
+  importWorld(id: string): void
   deleteServer(id: string): void
   startServer(id: string, ramMb: number, maxPlayers: number): void
   stopServer(id: string): void

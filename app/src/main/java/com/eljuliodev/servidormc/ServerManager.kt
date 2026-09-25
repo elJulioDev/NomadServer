@@ -65,6 +65,10 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private val _autoStopSeconds = MutableStateFlow<Int?>(null)
     val autoStopSeconds: StateFlow<Int?> = _autoStopSeconds.asStateFlow()
 
+    /** Semilla del mundo, leída del comando `/seed` (null si todavía no se pidió). */
+    private val _seed = MutableStateFlow<String?>(null)
+    val seed: StateFlow<String?> = _seed.asStateFlow()
+
     private var process: Process? = null
     private var monitorJob: Job? = null
     private var autoStopJob: Job? = null
@@ -94,6 +98,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
         _startProgress.value = 0
         _tps.value = null
         _autoStopSeconds.value = null
+        _seed.value = null
         scope.launch {
             try {
                 // Extrae el JRE en el primer arranque (tarda unos segundos).
@@ -259,6 +264,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private val leaveRegex = Regex(""": (\S+) left the game""")
     private val progressRegex = Regex("""Preparing spawn area: (\d+)%""")
     private val lagRegex = Regex("""Running \d+ms or (\d+) ticks behind""")
+    private val seedRegex = Regex("""Seed: \[(-?\d+)\]""")
 
     @Synchronized
     private fun log(line: String) {
@@ -277,6 +283,7 @@ class ServerManager(private val context: Context, private val serverId: String) 
             val behind = m.groupValues[1].toIntOrNull() ?: 0
             _tps.value = (TPS_MAX - behind / 20.0).coerceIn(1.0, TPS_MAX)
         }
+        seedRegex.find(line)?.let { m -> _seed.value = m.groupValues[1] }
         if (_status.value == Status.Starting && line.contains(DONE_MARKER)) {
             _startProgress.value = 100
             _tps.value = TPS_MAX

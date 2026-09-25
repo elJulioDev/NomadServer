@@ -220,6 +220,7 @@ const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'panel', label: 'Panel', icon: 'home' },
   { id: 'console', label: 'Consola', icon: 'terminal' },
   { id: 'players', label: 'Jugadores', icon: 'users' },
+  { id: 'world', label: 'Mundo', icon: 'globe' },
   { id: 'settings', label: 'Ajustes', icon: 'sliders' },
 ]
 
@@ -291,6 +292,16 @@ export function DetailScreen({
               settings={active?.settings ?? DEFAULT_SETTINGS}
               onAction={(action, name) => bridge.playerAction(server.id, action, name)}
               onWhitelistEnabled={(enabled) => bridge.setWhitelistEnabled(server.id, enabled)}
+            />
+          )}
+          {tab === 'world' && (
+            <WorldTab
+              active={active}
+              status={status}
+              onSeed={() => bridge.requestSeed(server.id)}
+              onWorldInfo={() => bridge.worldInfo(server.id)}
+              onRegenerate={(dimension) => bridge.regenerateWorld(server.id, dimension)}
+              onImport={() => bridge.importWorld(server.id)}
             />
           )}
           {tab === 'settings' && (
@@ -472,6 +483,180 @@ function PlayersTab({
           onConfirm={() => {
             onAction(pending.action, pending.name)
             setPending(null)
+          }}
+          onDismiss={() => setPending(null)}
+        />
+      )}
+    </>
+  )
+}
+
+const formatBytes = (bytes: number) => {
+  if (!bytes || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  const index = Math.min(units.length - 1, Math.floor(Math.log(bytes) / Math.log(1024)))
+  return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`
+}
+
+function SpaceRow({ icon, label, value, percent }: { icon: IconName; label: string; value: string; percent: number }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-3">
+        <Icon name={icon} className="size-4 shrink-0 text-muted-foreground" />
+        <span className="min-w-0 flex-1 text-sm">{label}</span>
+        <span className="shrink-0 font-mono text-xs tabular-nums text-muted-foreground">{value}</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+        <div className="h-full rounded-full bg-info" style={{ width: `${percent}%` }} />
+      </div>
+    </div>
+  )
+}
+
+function WorldTab({
+  active,
+  status,
+  onSeed,
+  onWorldInfo,
+  onRegenerate,
+  onImport,
+}: {
+  active: ActiveServer | null
+  status: Status
+  onSeed: () => void
+  onWorldInfo: () => void
+  onRegenerate: (dimension: 'nether' | 'end') => void
+  onImport: () => void
+}) {
+  const running = status === 'Running'
+  const seed = active?.seed ?? null
+  const world = active?.world ?? null
+  const [pending, setPending] = useState<'nether' | 'end' | 'import' | null>(null)
+
+  // Tamaños a demanda al abrir la pestaña (no en el push de 250 ms).
+  useEffect(() => {
+    onWorldInfo()
+  }, [])
+
+  // La semilla se pide sola cuando el server está encendido y aún no se conoce.
+  useEffect(() => {
+    if (running && !seed) onSeed()
+  }, [running, seed])
+
+  const usage = (bytes: number) => {
+    const total = world?.total ?? 0
+    return total > 0 ? Math.max(2, Math.round((bytes / total) * 100)) : 0
+  }
+
+  return (
+    <>
+      <Panel className="screen-line-top-none">
+        <PanelHeader>
+          <PanelTitle className="text-lg">Semilla</PanelTitle>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <Icon name="hash" className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate font-mono text-sm tabular-nums">{seed ?? '—'}</span>
+            <Button variant="outline" size="sm" disabled={!running} onClick={onSeed}>
+              <Icon name="restart" className="size-3.5" />
+              Ver
+            </Button>
+          </div>
+          {!running && (
+            <p className="text-xs text-muted-foreground">Enciende el servidor para consultar la semilla.</p>
+          )}
+        </PanelContent>
+      </Panel>
+
+      <div className="stripe-divider border-x border-line" />
+
+      <Panel className="screen-line-top-none">
+        <PanelHeader className="flex items-center justify-between gap-2">
+          <PanelTitle className="text-lg">Espacio</PanelTitle>
+          <Button variant="outline" size="sm" onClick={onWorldInfo}>
+            <Icon name="restart" className="size-3.5" />
+            Actualizar
+          </Button>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-4">
+          {world ? (
+            <>
+              <SpaceRow icon="globe" label="Mundo" value={formatBytes(world.world)} percent={usage(world.world)} />
+              <SpaceRow icon="globe" label="Nether" value={formatBytes(world.nether)} percent={usage(world.nether)} />
+              <SpaceRow icon="globe" label="End" value={formatBytes(world.end)} percent={usage(world.end)} />
+              <SpaceRow icon="box" label="server.jar" value={formatBytes(world.jar)} percent={usage(world.jar)} />
+              <SpaceRow icon="terminal" label="Logs" value={formatBytes(world.logs)} percent={usage(world.logs)} />
+              <Separator />
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Total del servidor</span>
+                <span className="font-mono tabular-nums">{formatBytes(world.total)}</span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Libre en el dispositivo</span>
+                <span className="font-mono tabular-nums">{formatBytes(world.free)}</span>
+              </div>
+            </>
+          ) : (
+            <p className="py-4 text-center text-sm text-muted-foreground">Calculando…</p>
+          )}
+        </PanelContent>
+      </Panel>
+
+      <div className="stripe-divider border-x border-line" />
+
+      <Panel className="screen-line-top-none">
+        <PanelHeader>
+          <PanelTitle className="text-lg">Mundo</PanelTitle>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-4">
+          <SettingRow label="Importar mundo" hint="Sube un .zip con level.dat en la raíz (reemplaza el mundo)">
+            <Button variant="outline" size="sm" disabled={running} onClick={() => setPending('import')}>
+              <Icon name="download" className="size-3.5" />
+              Importar
+            </Button>
+          </SettingRow>
+          <Separator />
+          <SettingRow label="Regenerar Nether" hint="Borra el Nether para que se genere de nuevo">
+            <Button variant="outline" size="sm" disabled={running} onClick={() => setPending('nether')}>
+              <Icon name="restart" className="size-3.5" />
+              Regenerar
+            </Button>
+          </SettingRow>
+          <Separator />
+          <SettingRow label="Regenerar End" hint="Borra el End para que se genere de nuevo">
+            <Button variant="outline" size="sm" disabled={running} onClick={() => setPending('end')}>
+              <Icon name="restart" className="size-3.5" />
+              Regenerar
+            </Button>
+          </SettingRow>
+          {running && (
+            <p className="text-xs text-muted-foreground">Detén el servidor para importar o regenerar.</p>
+          )}
+        </PanelContent>
+      </Panel>
+
+      {pending === 'import' && (
+        <ConfirmDialog
+          title="¿Importar un mundo?"
+          body="Se reemplaza el mundo actual por el .zip que elijas. No se puede deshacer y todavía no hay backup."
+          confirm="Elegir .zip"
+          onConfirm={() => {
+            setPending(null)
+            onImport()
+          }}
+          onDismiss={() => setPending(null)}
+        />
+      )}
+      {(pending === 'nether' || pending === 'end') && (
+        <ConfirmDialog
+          title={`¿Regenerar el ${pending === 'nether' ? 'Nether' : 'End'}?`}
+          body="Se borra esa dimensión y Minecraft la vuelve a generar al arrancar. No hay backup."
+          confirm="Regenerar"
+          onConfirm={() => {
+            const dimension = pending
+            setPending(null)
+            onRegenerate(dimension)
           }}
           onDismiss={() => setPending(null)}
         />

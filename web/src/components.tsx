@@ -107,6 +107,26 @@ const ICONS = {
     </>
   ),
   x: <path d="M6 6l12 12M18 6 6 18" />,
+  download: (
+    <>
+      <path d="M12 3v12" />
+      <path d="m7 10 5 5 5-5" />
+      <path d="M4 21h16" />
+    </>
+  ),
+  hash: (
+    <>
+      <path d="M4 9h16M4 15h16" />
+      <path d="M10 3 8 21M16 3l-2 18" />
+    </>
+  ),
+  hardDrive: (
+    <>
+      <path d="M3 13h18" />
+      <path d="M5 13 7 5h10l2 8v5a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2z" />
+      <path d="M8 17h.01M12 17h.01" />
+    </>
+  ),
   users: (
     <>
       <path d="M15.5 19.5v-1a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v1" />

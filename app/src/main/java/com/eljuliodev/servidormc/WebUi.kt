@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.net.Uri
+import android.os.StatFs
 import android.os.SystemClock
 import android.webkit.JavascriptInterface
 import android.webkit.ValueCallback
@@ -77,6 +78,19 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
     /** `ops.json` / `whitelist.json` por servidor; se invalidan al abrir y tras cada acción. */
     private val playersCache = mutableMapOf<String, PlayersInfo>()
+
+    /** Tamaños de las carpetas del mundo por servidor (se calculan a demanda). */
+    private val worldCache = mutableMapOf<String, JSONObject>()
+
+    /** `.zip` de mundo elegido para [importWorld]; el picker se lanza desde el bridge. */
+    private var pendingWorldImport: String? = null
+    private val pickWorldZip = (activity as? ComponentActivity)?.registerForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        val id = pendingWorldImport
+        pendingWorldImport = null
+        if (id != null && uri != null) importWorldZip(id, uri)
+    }
 
     /** Selección de imagen para `<input type="file">` (icono del servidor). */
     private var fileCallback: ValueCallback<Array<Uri>>? = null
@@ -194,6 +208,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         fun openServer(id: String) = onMain {
             activeId = id
             playersCache.remove(id)
+            worldCache.remove(id)
             observeActive()
             schedulePush()
         }
@@ -293,6 +308,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                 withContext(Dispatchers.IO) { ServerProfileStore.remove(activity, id) }
                 settingsCache.remove(id)
                 playersCache.remove(id)
+                worldCache.remove(id)
                 if (activeId == id) activeId = null
                 reload()
                 observeActive()
@@ -324,6 +340,47 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                 if (!ok) Toast.makeText(activity, "No se pudo leer la imagen", Toast.LENGTH_SHORT).show()
                 schedulePush()
             }
+        }
+
+        @JavascriptInterface
+        fun requestSeed(id: String) = onMain { app.managerFor(id).sendCommand("seed") }
+
+        /** Calcula tamaños/espacio del servidor en segundo plano y los deja en el snapshot. */
+        @JavascriptInterface
+        fun worldInfo(id: String) = onMain {
+            scope.launch {
+                val info = withContext(Dispatchers.IO) {
+                    runCatching {
+                        WorldTools.sizes(File(activity.filesDir, "servers/$id"), freeBytes()).toJson()
+                    }.getOrNull()
+                }
+                if (info != null) worldCache[id] = info
+                schedulePush()
+            }
+        }
+
+        @JavascriptInterface
+        fun regenerateWorld(id: String, dimension: String) = onMain {
+            scope.launch {
+                val deleted = withContext(Dispatchers.IO) {
+                    runCatching { WorldTools.regenerate(File(activity.filesDir, "servers/$id"), dimension) }
+                        .getOrDefault(false)
+                }
+                worldCache.remove(id)
+                if (!deleted) toast("No había nada que regenerar")
+                schedulePush()
+            }
+        }
+
+        @JavascriptInterface
+        fun importWorld(id: String) = onMain {
+            val launcher = pickWorldZip
+            if (launcher == null) {
+                toast("Selector de archivos no disponible")
+                return@onMain
+            }
+            pendingWorldImport = id
+            launcher.launch(arrayOf("*/*"))
         }
 
         @JavascriptInterface
@@ -382,6 +439,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         activeJobs += scope.launch { manager.ramUsedMb.collect { schedulePush() } }
         activeJobs += scope.launch { manager.players.collect { schedulePush() } }
         activeJobs += scope.launch { manager.tps.collect { schedulePush() } }
+        activeJobs += scope.launch { manager.seed.collect { schedulePush() } }
         activeJobs += scope.launch { manager.startProgress.collect { schedulePush() } }
         activeJobs += scope.launch { manager.autoStopSeconds.collect { schedulePush() } }
     }
@@ -458,6 +516,8 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                         put("ops", JSONArray(info.ops))
                         put("whitelist", JSONArray(info.whitelist))
                     }
+                    put("seed", manager.seed.value ?: JSONObject.NULL)
+                    put("world", worldCache[id] ?: JSONObject.NULL)
                     put("tps", manager.tps.value ?: JSONObject.NULL)
                     put("startProgress", manager.startProgress.value)
                     put("autoStopSeconds", manager.autoStopSeconds.value ?: JSONObject.NULL)
@@ -496,6 +556,32 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
     private fun playersOf(id: String): PlayersInfo = playersCache.getOrPut(id) {
         val dir = File(activity.filesDir, "servers/$id")
         PlayersInfo(PlayersStore.ops(dir), PlayersStore.whitelist(dir))
+    }
+
+    private fun freeBytes(): Long =
+        runCatching { StatFs(activity.filesDir.path).availableBytes }.getOrDefault(0L)
+
+    private fun toast(message: String) {
+        Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
+    }
+
+    /** Copia el `.zip` elegido y reemplaza el mundo; corre en IO y avisa por Toast. */
+    private fun importWorldZip(id: String, uri: Uri) {
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dir = File(activity.filesDir, "servers/$id")
+                    val stream = activity.contentResolver.openInputStream(uri)
+                        ?: error("No se pudo abrir el archivo")
+                    stream.use { WorldTools.importZip(dir, it).getOrThrow() }
+                }
+            }
+            worldCache.remove(id)
+            result
+                .onSuccess { toast("Mundo importado") }
+                .onFailure { toast("Importación fallida: ${it.message}") }
+            schedulePush()
+        }
     }
 
     /** mtime del icono (0/null si no existe); sirve para invalidar la caché del `<img>` en JS. */
