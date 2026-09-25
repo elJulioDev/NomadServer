@@ -75,19 +75,39 @@ class RegionOptimizerTest {
         region.writeBytes(region(mapOf(0 to chunkNbt(0), 1 to chunkNbt(500))))
         val before = region.length()
 
-        val preview = RegionOptimizer.preview(dir, listOf("world"))
+        val preview = RegionOptimizer.preview(dir, RegionOptimizer.Mode.REMOVE_UNVISITED)
+        assertEquals(1, preview.regionFiles)
         assertEquals(2, preview.chunks)
         assertEquals(1, preview.unvisited)
         assertTrue(preview.reclaimable > 0)
         // La vista previa no toca el archivo.
         assertEquals(before, region.length())
 
-        RegionOptimizer.optimize(dir, listOf("world"))
+        RegionOptimizer.optimize(dir, RegionOptimizer.Mode.REMOVE_UNVISITED)
         assertTrue(region.length() < before)
 
-        val after = RegionOptimizer.preview(dir, listOf("world"))
+        val after = RegionOptimizer.preview(dir, RegionOptimizer.Mode.REMOVE_UNVISITED)
         assertEquals(1, after.chunks)
         assertEquals(0, after.unvisited)
+    }
+
+    @Test
+    fun `compact reclaims trailing space without removing chunks`() {
+        val dir = temp.newFolder()
+        val region = File(world(dir), "region/r.0.0.mca")
+        // Región válida + 3 sectores de cola vacíos (simula espacio sin usar).
+        region.writeBytes(region(mapOf(0 to chunkNbt(500))) + ByteArray(3 * 4096))
+        val before = region.length()
+
+        val preview = RegionOptimizer.preview(dir, RegionOptimizer.Mode.COMPACT)
+        assertEquals(1, preview.chunks)
+        assertEquals(0, preview.unvisited)
+        assertTrue(preview.reclaimable > 0)
+
+        RegionOptimizer.optimize(dir, RegionOptimizer.Mode.COMPACT)
+        assertTrue(region.length() < before)
+        // No se quitó ningún chunk.
+        assertEquals(1, RegionOptimizer.preview(dir, RegionOptimizer.Mode.COMPACT).chunks)
     }
 
     @Test
@@ -107,7 +127,7 @@ class RegionOptimizerTest {
         }.toByteArray()
         region.writeBytes(region(mapOf(0 to nbt)))
 
-        val preview = RegionOptimizer.preview(dir, listOf("world"))
+        val preview = RegionOptimizer.preview(dir, RegionOptimizer.Mode.REMOVE_UNVISITED)
         assertEquals(1, preview.chunks)
         assertEquals(0, preview.unvisited)
     }
@@ -122,11 +142,11 @@ class RegionOptimizerTest {
         }
         val fresh = File(logs, "latest.log").apply { writeText("y".repeat(50)) }
 
-        val preview = RegionOptimizer.preview(dir, listOf("world"))
+        val preview = RegionOptimizer.preview(dir, RegionOptimizer.Mode.REMOVE_UNVISITED)
         assertEquals(1, preview.logFiles)
         assertTrue(preview.logBytes > 0)
 
-        RegionOptimizer.optimize(dir, listOf("world"))
+        RegionOptimizer.optimize(dir, RegionOptimizer.Mode.REMOVE_UNVISITED)
         assertTrue(!old.exists())
         assertTrue(fresh.exists())
     }

@@ -404,32 +404,37 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
         /** Cuánto se puede liberar, sin tocar nada (vista previa del optimizador). */
         @JavascriptInterface
-        fun optimizePreview(id: String) = onMain {
+        fun optimizePreview(id: String, mode: String) = onMain {
             scope.launch {
                 val preview = withContext(Dispatchers.IO) {
-                    runCatching { RegionOptimizer.preview(File(activity.filesDir, "servers/$id"), worldsOf(id)) }
-                        .getOrNull()
+                    runCatching {
+                        RegionOptimizer.preview(File(activity.filesDir, "servers/$id"), optimizeMode(mode))
+                    }.getOrNull()
                 }
                 if (preview != null) optimizeCache[id] = preview.toJson()
                 schedulePush()
             }
         }
 
-        /** Aplica el optimizador (chunks nunca visitados + logs viejos). Requiere server apagado. */
+        /** Aplica el optimizador elegido (`compact` | `remove`). Requiere server apagado. */
         @JavascriptInterface
-        fun optimizeWorld(id: String) = onMain {
+        fun optimizeWorld(id: String, mode: String) = onMain {
             scope.launch {
+                val manager = app.managerFor(id)
+                val chosen = optimizeMode(mode)
+                manager.note(if (chosen == RegionOptimizer.Mode.COMPACT) "Compactando regiones…" else "Quitando chunks sin visitar…")
                 val result = withContext(Dispatchers.IO) {
-                    runCatching { RegionOptimizer.optimize(File(activity.filesDir, "servers/$id"), worldsOf(id)) }
+                    runCatching { RegionOptimizer.optimize(File(activity.filesDir, "servers/$id"), chosen) }
                         .getOrNull()
                 }
                 optimizeCache.remove(id)
                 worldCache.remove(id)
                 filesCache.remove(id)
-                toast(
-                    result?.let { "Optimizado: ${it.unvisited} chunks y ${it.logFiles} logs" }
+                manager.note(
+                    result?.let { "Optimizado: ${humanBytes(it.reclaimable)} liberados (${it.unvisited} chunks, ${it.logFiles} logs)" }
                         ?: "No se pudo optimizar",
                 )
+                toast(result?.let { "Liberados ${humanBytes(it.reclaimable)}" } ?: "No se pudo optimizar")
                 schedulePush()
             }
         }
@@ -681,13 +686,25 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
     private fun deviceTotalBytes(): Long =
         runCatching { StatFs(activity.filesDir.path).totalBytes }.getOrDefault(0L)
 
-    /** Las tres dimensiones del servidor, según su `level-name`. */
-    private fun worldsOf(id: String): List<String> {
-        val name = WorldTools.levelName(File(activity.filesDir, "servers/$id"))
-        return listOf(name, "${name}_nether", "${name}_the_end")
+    private fun humanBytes(bytes: Long): String {
+        if (bytes <= 0) return "0 B"
+        val units = listOf("B", "KB", "MB", "GB", "TB")
+        var value = bytes.toDouble()
+        var index = 0
+        while (value >= 1024 && index < units.lastIndex) {
+            value /= 1024
+            index++
+        }
+        return if (index == 0) "${value.toLong()} ${units[index]}" else "%.1f %s".format(value, units[index])
     }
 
+    private fun optimizeMode(mode: String): RegionOptimizer.Mode =
+        if (mode == RegionOptimizer.Mode.REMOVE_UNVISITED.id) RegionOptimizer.Mode.REMOVE_UNVISITED
+        else RegionOptimizer.Mode.COMPACT
+
     private fun RegionOptimizer.Preview.toJson(): JSONObject = JSONObject().apply {
+        put("mode", mode)
+        put("regionFiles", regionFiles)
         put("chunks", chunks)
         put("unvisited", unvisited)
         put("regionBefore", regionBefore)

@@ -262,23 +262,26 @@ export function createMock(): NomadBridge {
       fileListings[id] = { path, entries: MOCK_TREE[path] ?? [] }
       emit()
     },
-    optimizePreview: (id) => {
+    optimizePreview: (id, mode) => {
+      const remove = mode === 'remove'
       optimizePreviews[id] = {
+        mode,
+        regionFiles: 37,
         chunks: 845,
-        unvisited: 512,
+        unvisited: remove ? 512 : 0,
         regionBefore: 12_345_678,
-        regionAfter: 4_500_000,
+        regionAfter: remove ? 4_500_000 : 11_900_000,
         logFiles: 3,
         logBytes: 60_000,
-        reclaimable: 7_905_678,
+        reclaimable: remove ? 7_905_678 : 505_678,
       }
       emit()
     },
-    optimizeWorld: (id) => {
+    optimizeWorld: (id, mode) => {
       optimizePreviews[id] = null
       const current = worlds[id]
-      if (current) worlds[id] = { ...current, world: 4_500_000, worldFiles: 333 }
-      push(id, 'Mundo optimizado (mock): 512 chunks y 3 logs')
+      if (current) worlds[id] = { ...current, world: mode === 'remove' ? 4_500_000 : 11_900_000 }
+      push(id, mode === 'remove' ? 'Mundo optimizado (mock): 512 chunks y 3 logs' : 'Regiones compactadas (mock)')
       emit()
     },
     regenerateWorld: (id, dimension) => {

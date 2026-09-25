@@ -308,8 +308,8 @@ export function DetailScreen({
               onWorldInfo={() => bridge.worldInfo(server.id)}
               onRegenerate={(dimension) => bridge.regenerateWorld(server.id, dimension)}
               onImport={() => bridge.importWorld(server.id)}
-              onOptimizePreview={() => bridge.optimizePreview(server.id)}
-              onOptimize={() => bridge.optimizeWorld(server.id)}
+              onOptimizePreview={(mode) => bridge.optimizePreview(server.id, mode)}
+              onOptimize={(mode) => bridge.optimizeWorld(server.id, mode)}
             />
           )}
           {tab === 'settings' && (
@@ -681,12 +681,14 @@ function WorldTab({
   onWorldInfo: () => void
   onRegenerate: (dimension: 'nether' | 'end') => void
   onImport: () => void
-  onOptimizePreview: () => void
-  onOptimize: () => void
+  onOptimizePreview: (mode: string) => void
+  onOptimize: (mode: string) => void
 }) {
   const running = status === 'Running'
   const world = active?.world ?? null
-  const optimize = active?.optimize ?? null
+  const [optimizeMode, setOptimizeMode] = useState<'compact' | 'remove'>('compact')
+  // Sólo se muestra la vista previa del modo elegido.
+  const optimize = active?.optimize?.mode === optimizeMode ? active.optimize : null
   // Online manda `/seed`; apagado se lee de level.dat (worldInfo lo trae).
   const seed = active?.seed ?? world?.seed ?? null
   const [pending, setPending] = useState<'nether' | 'end' | 'import' | 'optimize' | null>(null)
@@ -844,12 +846,33 @@ function WorldTab({
           <PanelTitle className="text-lg">Optimizar</PanelTitle>
         </PanelHeader>
         <PanelContent className="flex flex-col gap-4">
-          <p className="text-xs text-muted-foreground">
-            Quita chunks que nunca se visitaron (Minecraft los regenera igual desde la semilla) y
-            logs de más de 7 días. Se pierden los cambios hechos a mano en esos chunks. Server apagado.
-          </p>
+          <SettingRow label="Modo" hint={optimizeMode === 'compact' ? 'Cero pérdida: sólo reempaqueta' : 'Borra chunks nunca visitados'}>
+            <Select
+              value={optimizeMode}
+              onChange={(value) => setOptimizeMode(value === 'remove' ? 'remove' : 'compact')}
+              className="w-40"
+              disabled={running}
+            >
+              <option value="compact">Compactar (seguro)</option>
+              <option value="remove">Quitar sin visitar</option>
+            </Select>
+          </SettingRow>
+          {optimizeMode === 'compact' ? (
+            <p className="text-xs text-muted-foreground">
+              Reempaqueta las regiones y borra logs de más de 7 días. No quita ningún chunk, así que
+              no se pierde nada. Server apagado.
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Quita los chunks que nunca se visitaron (Minecraft los regenera igual desde la
+              semilla, sin importar la distancia) y logs de más de 7 días.{' '}
+              <span className="text-destructive">
+                Los cambios hechos a mano en chunks sin visitas se pierden y todavía no hay backup.
+              </span>
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={onOptimizePreview}>
+            <Button variant="outline" size="sm" onClick={() => onOptimizePreview(optimizeMode)}>
               <Icon name="activity" className="size-3.5" />
               Analizar
             </Button>
@@ -863,16 +886,24 @@ function WorldTab({
               Optimizar
             </Button>
           </div>
-          {optimize && (
+          {optimize ? (
             <div className="flex flex-col gap-1 text-xs text-muted-foreground">
               <span>
-                {optimize.chunks} chunks · {optimize.unvisited} sin visitar
+                {optimize.regionFiles} regiones · {optimize.chunks} chunks
+                {optimizeMode === 'remove' ? ` · ${optimize.unvisited} sin visitar` : ''}
               </span>
               <span>
                 Logs viejos: {optimize.logFiles} ({formatBytes(optimize.logBytes)})
               </span>
               <span className="text-foreground">Liberable: {formatBytes(optimize.reclaimable)}</span>
+              {optimize.regionFiles === 0 && (
+                <span className="text-destructive">
+                  No hay regiones: el mundo todavía no se generó (enciende el server una vez).
+                </span>
+              )}
             </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">Toca "Analizar" para ver cuánto se puede liberar.</p>
           )}
           {running && <p className="text-xs text-muted-foreground">Detén el servidor para optimizar.</p>}
         </PanelContent>
@@ -881,11 +912,15 @@ function WorldTab({
       {pending === 'optimize' && (
         <ConfirmDialog
           title="¿Optimizar el mundo?"
-          body="Se quitan los chunks sin visitas y los logs viejos. No se puede deshacer y todavía no hay backup."
+          body={
+            optimizeMode === 'compact'
+              ? 'Sólo se reempaquetan las regiones y se borran logs viejos: no se pierde nada.'
+              : 'Se quitan los chunks sin visitas y los logs viejos. No se puede deshacer y todavía no hay backup.'
+          }
           confirm="Optimizar"
           onConfirm={() => {
             setPending(null)
-            onOptimize()
+            onOptimize(optimizeMode)
           }}
           onDismiss={() => setPending(null)}
         />

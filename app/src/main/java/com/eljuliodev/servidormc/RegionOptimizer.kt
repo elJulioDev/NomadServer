@@ -23,7 +23,15 @@ object RegionOptimizer {
     private const val CHUNKS_PER_REGION = 1024
     private const val LOG_KEEP_MS = 7L * 24 * 60 * 60 * 1000
 
+    /** `COMPACT` sólo reempaqueta (cero pérdida). `REMOVE_UNVISITED` además quita chunks sin visitas. */
+    enum class Mode(val id: String) {
+        COMPACT("compact"),
+        REMOVE_UNVISITED("remove"),
+    }
+
     data class Preview(
+        val mode: String,
+        val regionFiles: Int,
         val chunks: Int,
         val unvisited: Int,
         val regionBefore: Long,
@@ -35,20 +43,21 @@ object RegionOptimizer {
     }
 
     /** Cuenta sin tocar nada (para la vista previa). */
-    fun preview(dir: File, worlds: List<String>): Preview = run(dir, worlds, apply = false)
+    fun preview(dir: File, mode: Mode): Preview = run(dir, mode, apply = false)
 
     /** Aplica la optimización y devuelve lo que se liberó. */
-    fun optimize(dir: File, worlds: List<String>): Preview = run(dir, worlds, apply = true)
+    fun optimize(dir: File, mode: Mode): Preview = run(dir, mode, apply = true)
 
-    private fun run(dir: File, worlds: List<String>, apply: Boolean): Preview {
+    private fun run(dir: File, mode: Mode, apply: Boolean): Preview {
+        var regionFiles = 0
         var chunks = 0
         var unvisited = 0
         var before = 0L
         var after = 0L
-        worlds.forEach { world ->
-            val worldDir = File(dir, world)
+        worldDirs(dir).forEach { worldDir ->
             File(worldDir, "region").listFiles { file -> file.name.endsWith(".mca") }?.forEach { region ->
-                val result = optimizeRegion(region, worldDir, apply)
+                regionFiles++
+                val result = optimizeRegion(region, worldDir, mode, apply)
                 chunks += result.kept + result.removed
                 unvisited += result.removed
                 before += result.bytesBefore
@@ -56,8 +65,15 @@ object RegionOptimizer {
             }
         }
         val (logFiles, logBytes) = cleanLogs(dir, apply)
-        return Preview(chunks, unvisited, before, after, logFiles, logBytes)
+        return Preview(mode.id, regionFiles, chunks, unvisited, before, after, logFiles, logBytes)
     }
+
+    /**
+     * Carpetas del servidor que contienen `region/` (overworld, nether, end…). Se descubren así
+     * en vez de adivinar por `level-name`, para no depender de que exista `server.properties`.
+     */
+    private fun worldDirs(dir: File): List<File> =
+        dir.listFiles { file -> file.isDirectory && File(file, "region").isDirectory }?.toList().orEmpty()
 
     private data class Chunk(val index: Int, val compression: Int, val payload: ByteArray, val timestamp: Int)
 
@@ -68,7 +84,7 @@ object RegionOptimizer {
         val bytesAfter: Long,
     )
 
-    private fun optimizeRegion(file: File, worldDir: File, apply: Boolean): RegionResult {
+    private fun optimizeRegion(file: File, worldDir: File, mode: Mode, apply: Boolean): RegionResult {
         val bytes = file.readBytes()
         if (bytes.size < HEADER_BYTES) return RegionResult(0, 0, bytes.size.toLong(), bytes.size.toLong())
 
@@ -76,18 +92,21 @@ object RegionOptimizer {
         val removedIndices = HashSet<Int>()
         for (index in 0 until CHUNKS_PER_REGION) {
             val chunk = readChunk(bytes, index) ?: continue
-            if (isUnvisited(chunk)) removedIndices.add(index) else kept.add(chunk)
-        }
-        if (removedIndices.isEmpty()) {
-            return RegionResult(kept.size, 0, bytes.size.toLong(), bytes.size.toLong())
+            val remove = mode == Mode.REMOVE_UNVISITED && isUnvisited(chunk)
+            if (remove) removedIndices.add(index) else kept.add(chunk)
         }
 
+        val before = bytes.size.toLong()
         val after = HEADER_BYTES + kept.sumOf { paddedSize(it.payload.size).toLong() }
+        // Compactar sólo si ahorra; quitar chunks sólo si hay algo que quitar.
+        if (removedIndices.isEmpty() && after >= before) {
+            return RegionResult(kept.size, 0, before, before)
+        }
         if (apply) {
             writeRegion(file, kept)
-            removeMirrors(worldDir, file.name, removedIndices)
+            if (removedIndices.isNotEmpty()) removeMirrors(worldDir, file.name, removedIndices)
         }
-        return RegionResult(kept.size, removedIndices.size, bytes.size.toLong(), after)
+        return RegionResult(kept.size, removedIndices.size, before, after)
     }
 
     /** Los mismos índices existen en `entities/` y `poi/`; se quitan para no dejar huérfanos. */

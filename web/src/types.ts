@@ -4,6 +4,9 @@ export type Tab = 'panel' | 'console' | 'players' | 'world' | 'files' | 'setting
 
 /** Resultado/vista previa del optimizador de mundos. */
 export interface OptimizePreview {
+  /** `compact` | `remove`. */
+  mode: string
+  regionFiles: number
   chunks: number
   unvisited: number
   regionBefore: number
@@ -156,10 +159,10 @@ export interface NomadBridge {
   setWhitelistEnabled(id: string, enabled: boolean): void
   /** Lista un directorio del servidor (`path` relativo a su carpeta); llega en `active.files`. */
   listFiles(id: string, path: string): void
-  /** Analiza cuánto se puede liberar; el resultado llega en `active.optimize`. */
-  optimizePreview(id: string): void
-  /** Aplica el optimizador (chunks nunca visitados + logs viejos). Server apagado. */
-  optimizeWorld(id: string): void
+  /** Analiza cuánto se puede liberar con ese modo; el resultado llega en `active.optimize`. */
+  optimizePreview(id: string, mode: string): void
+  /** Aplica el optimizador (`compact` = seguro, `remove` = quita chunks sin visitas). Server apagado. */
+  optimizeWorld(id: string, mode: string): void
   /** Cambia la versión del perfil (se descarga al próximo arranque; server apagado). */
   setVersion(id: string, version: string): void
   /** Pide la semilla al servidor (manda `seed` por consola; requiere estar encendido). */
