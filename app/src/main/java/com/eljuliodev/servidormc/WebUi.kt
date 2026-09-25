@@ -74,7 +74,11 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
     /** Versiones del manifest traídas por `fetchVersions` (null = todavía no pedidas). */
     private var versions: List<McVersion>? = null
 
-    private data class PlayersInfo(val ops: List<String>, val whitelist: List<String>)
+    private data class PlayersInfo(
+        val ops: List<String>,
+        val whitelist: List<String>,
+        val bannedIps: List<String>,
+    )
 
     /** `ops.json` / `whitelist.json` por servidor; se invalidan al abrir y tras cada acción. */
     private val playersCache = mutableMapOf<String, PlayersInfo>()
@@ -235,6 +239,8 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                 "pardon" -> "pardon $name"
                 "whitelistAdd" -> "whitelist add $name"
                 "whitelistRemove" -> "whitelist remove $name"
+                "banIp" -> "ban-ip $name"
+                "pardonIp" -> "pardon-ip $name"
                 else -> null
             } ?: return@onMain
             app.managerFor(id).sendCommand(command)
@@ -342,6 +348,26 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             }
         }
 
+        /** Cambia la versión del perfil; el `server.jar` se descarga al próximo arranque. */
+        @JavascriptInterface
+        fun setVersion(id: String, version: String) = onMain {
+            val manager = app.managerFor(id)
+            if (manager.status.value == ServerManager.Status.Running ||
+                manager.status.value == ServerManager.Status.Starting
+            ) {
+                toast("Detén el servidor para cambiar la versión")
+                return@onMain
+            }
+            scope.launch {
+                withContext(Dispatchers.IO) {
+                    ServerProfileStore.setVersion(activity, id, version.ifEmpty { null })
+                }
+                versionCache.remove(id)
+                reload()
+                schedulePush()
+            }
+        }
+
         @JavascriptInterface
         fun requestSeed(id: String) = onMain { app.managerFor(id).sendCommand("seed") }
 
@@ -351,7 +377,11 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             scope.launch {
                 val info = withContext(Dispatchers.IO) {
                     runCatching {
-                        WorldTools.sizes(File(activity.filesDir, "servers/$id"), freeBytes()).toJson()
+                        val dir = File(activity.filesDir, "servers/$id")
+                        WorldTools.sizes(dir, freeBytes())
+                            .toJson()
+                            // Como string: la semilla es un long de 64 bits y JS perdería precisión.
+                            .put("seed", WorldTools.seed(dir)?.toString() ?: JSONObject.NULL)
                     }.getOrNull()
                 }
                 if (info != null) worldCache[id] = info
@@ -474,6 +504,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                     put("status", manager.status.value.name)
                     put("players", JSONArray(manager.players.value.toList()))
                     put("version", versionOf(profile.id) ?: JSONObject.NULL)
+                    put("mcVersion", profile.mcVersion ?: JSONObject.NULL)
                     put("iconVersion", iconVersionOf(profile.id) ?: JSONObject.NULL)
                 },
             )
@@ -515,6 +546,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                     playersOf(id).let { info ->
                         put("ops", JSONArray(info.ops))
                         put("whitelist", JSONArray(info.whitelist))
+                        put("bannedIps", JSONArray(info.bannedIps))
                     }
                     put("seed", manager.seed.value ?: JSONObject.NULL)
                     put("world", worldCache[id] ?: JSONObject.NULL)
@@ -555,7 +587,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
     private fun playersOf(id: String): PlayersInfo = playersCache.getOrPut(id) {
         val dir = File(activity.filesDir, "servers/$id")
-        PlayersInfo(PlayersStore.ops(dir), PlayersStore.whitelist(dir))
+        PlayersInfo(PlayersStore.ops(dir), PlayersStore.whitelist(dir), PlayersStore.bannedIps(dir))
     }
 
     private fun freeBytes(): Long =

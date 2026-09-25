@@ -37,8 +37,8 @@ const clock = () => new Date().toTimeString().slice(0, 8)
  */
 export function createMock(): NomadBridge {
   const servers: ServerSummary[] = [
-    { id: 'demo-survival', name: 'Survival', ramMb: 2048, maxPlayers: 20, status: 'Stopped', players: [], version: '1.21.8', iconVersion: null },
-    { id: 'demo-creativo', name: 'Creativo', ramMb: 4096, maxPlayers: 10, status: 'Stopped', players: [], version: null, iconVersion: null },
+    { id: 'demo-survival', name: 'Survival', ramMb: 2048, maxPlayers: 20, status: 'Stopped', players: [], version: '1.21.8', mcVersion: '1.21.8', iconVersion: null },
+    { id: 'demo-creativo', name: 'Creativo', ramMb: 4096, maxPlayers: 10, status: 'Stopped', players: [], version: null, mcVersion: null, iconVersion: null },
   ]
   const settings: Record<string, ServerSettings> = {}
   const ops: Record<string, string[]> = {}
@@ -48,6 +48,7 @@ export function createMock(): NomadBridge {
   const progress: Record<string, number> = {}
   const autoStop: Record<string, number | null> = {}
   const seeds: Record<string, string | null> = {}
+  const bannedIps: Record<string, string[]> = {}
   const worlds: Record<string, WorldSizes | null> = {}
   const timers = new Map<string, number>()
   let versions: VersionOption[] | undefined
@@ -74,6 +75,7 @@ export function createMock(): NomadBridge {
         autoStopSeconds: autoStop[active.id] ?? null,
         ops: ops[active.id] ?? [],
         whitelist: whitelist[active.id] ?? [],
+        bannedIps: bannedIps[active.id] ?? [],
         seed: seeds[active.id] ?? null,
         world: worlds[active.id] ?? null,
       }
@@ -159,6 +161,7 @@ export function createMock(): NomadBridge {
         status: 'Stopped',
         players: [],
         version: mcVersion || null,
+        mcVersion: mcVersion || null,
         iconVersion: null,
       }
       servers.push(created)
@@ -206,7 +209,13 @@ export function createMock(): NomadBridge {
         logs: 345_678,
         total: 78_000_000,
         free: 42_000_000_000,
+        seed: '-4172144997902289642',
       }
+      emit()
+    },
+    setVersion: (id, version) => {
+      const server = servers.find((s) => s.id === id)
+      if (server) server.mcVersion = version || null
       emit()
     },
     regenerateWorld: (id, dimension) => {
@@ -247,6 +256,16 @@ export function createMock(): NomadBridge {
         case 'whitelistRemove':
           whitelist[id] = white.filter((n) => n !== name)
           push(id, `Removed ${name} from the whitelist`)
+          break
+        case 'banIp': {
+          const ips = (bannedIps[id] ??= [])
+          if (!ips.includes(name)) ips.push(name)
+          push(id, `Banned the IP ${name}`)
+          break
+        }
+        case 'pardonIp':
+          bannedIps[id] = (bannedIps[id] ?? []).filter((ip) => ip !== name)
+          push(id, `Unbanned the IP ${name}`)
           break
       }
       emit()

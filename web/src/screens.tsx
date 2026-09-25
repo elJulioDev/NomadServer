@@ -229,6 +229,7 @@ export function DetailScreen({
   active,
   logs,
   lanAddress,
+  versions,
   tab,
   onTabChange,
   onCommand,
@@ -238,6 +239,7 @@ export function DetailScreen({
   active: ActiveServer | null
   logs: string[]
   lanAddress: string | null
+  versions?: VersionOption[]
   tab: Tab
   onTabChange: (tab: Tab) => void
   onCommand: (text: string) => void
@@ -314,6 +316,10 @@ export function DetailScreen({
               onSave={(value) => bridge.updateSettings(server.id, JSON.stringify(value))}
               onIcon={(dataUrl) => bridge.setServerIcon(server.id, dataUrl)}
               locked={status !== 'Stopped' && status !== 'Error'}
+              mcVersion={server.mcVersion}
+              versions={versions}
+              onVersion={(version) => bridge.setVersion(server.id, version)}
+              onNeedVersions={() => bridge.fetchVersions()}
             />
           )}
         </div>
@@ -378,7 +384,9 @@ function PlayersTab({
   const players = active?.players ?? []
   const ops = new Set((active?.ops ?? []).map((name) => name.toLowerCase()))
   const whitelist = active?.whitelist ?? []
+  const bannedIps = active?.bannedIps ?? []
   const [name, setName] = useState('')
+  const [ip, setIp] = useState('')
   const [pending, setPending] = useState<{ action: 'kick' | 'ban'; name: string } | null>(null)
 
   const addToWhitelist = () => {
@@ -471,6 +479,59 @@ function PlayersTab({
         </PanelContent>
       </Panel>
 
+      <div className="stripe-divider border-x border-line" />
+
+      <Panel className="screen-line-top-none">
+        <PanelHeader>
+          <PanelTitle className="text-lg">IPs baneadas</PanelTitle>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-4">
+          <div className="flex items-center gap-2">
+            <input
+              value={ip}
+              onChange={(event) => setIp(event.target.value)}
+              placeholder="192.168.0.10"
+              autoComplete="off"
+              autoCapitalize="off"
+              spellCheck={false}
+              className={cn(INPUT, 'min-w-0 flex-1 font-mono')}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!running || !ip.trim()}
+              onClick={() => {
+                onAction('banIp', ip.trim())
+                setIp('')
+              }}
+            >
+              <Icon name="ban" className="size-3.5" />
+              Banear
+            </Button>
+          </div>
+          {bannedIps.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No hay IPs baneadas.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {bannedIps.map((entry) => (
+                <div key={entry} className="flex items-center gap-3">
+                  <span className="min-w-0 flex-1 truncate font-mono text-sm">{entry}</span>
+                  <IconButton
+                    icon="x"
+                    label={`Desbanear ${entry}`}
+                    disabled={!running}
+                    onClick={() => onAction('pardonIp', entry)}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          {!running && (
+            <p className="text-xs text-muted-foreground">Enciende el servidor para banear o desbanear IPs.</p>
+          )}
+        </PanelContent>
+      </Panel>
+
       {pending && (
         <ConfirmDialog
           title={`¿${pending.action === 'ban' ? 'Banear' : 'Kickear'} a ${pending.name}?`}
@@ -529,8 +590,9 @@ function WorldTab({
   onImport: () => void
 }) {
   const running = status === 'Running'
-  const seed = active?.seed ?? null
   const world = active?.world ?? null
+  // Online manda `/seed`; apagado se lee de level.dat (worldInfo lo trae).
+  const seed = active?.seed ?? world?.seed ?? null
   const [pending, setPending] = useState<'nether' | 'end' | 'import' | null>(null)
 
   // Tamaños a demanda al abrir la pestaña (no en el push de 250 ms).
@@ -802,7 +864,7 @@ function PanelTab({
           <Separator />
           <StatRow icon="box" label="Software" value="Vanilla" />
           <Separator />
-          <StatRow icon="server" label="Versión" value={server.version ?? '—'} mono />
+          <StatRow icon="server" label="Versión" value={server.mcVersion ?? server.version ?? '—'} mono />
         </PanelContent>
       </Panel>
 
@@ -1381,6 +1443,10 @@ function SettingsTab({
   onSave,
   onIcon,
   locked,
+  mcVersion,
+  versions,
+  onVersion,
+  onNeedVersions,
 }: {
   ramMb: number
   onRamChange: (ramMb: number) => void
@@ -1390,10 +1456,18 @@ function SettingsTab({
   onIcon: (dataUrl: string) => void
   /** El servidor debe estar apagado: Minecraft reescribe server.properties al detenerse. */
   locked: boolean
+  mcVersion: string | null
+  versions?: VersionOption[]
+  onVersion: (version: string) => void
+  onNeedVersions: () => void
 }) {
   // El borrador se inicializa al abrir la pestaña; los pushes del snapshot no lo pisan.
   const [draft, setDraft] = useState(settings)
   const dirty = JSON.stringify(draft) !== JSON.stringify(settings)
+
+  useEffect(() => {
+    if (!versions) onNeedVersions()
+  }, [versions])
 
   return (
     <>
@@ -1416,6 +1490,31 @@ function SettingsTab({
           variant="panel"
         />
       </fieldset>
+
+      <div className="stripe-divider border-x border-line" />
+
+      <Panel className="screen-line-top-none">
+        <PanelHeader>
+          <PanelTitle className="text-lg">Software</PanelTitle>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-3">
+          <SettingRow label="Versión de Minecraft" hint="Se descarga la próxima vez que enciendas">
+            <Select value={mcVersion ?? ''} onChange={onVersion} className="w-28" disabled={locked}>
+              {mcVersion && !(versions ?? []).some((version) => version.id === mcVersion) && (
+                <option value={mcVersion}>{mcVersion}</option>
+              )}
+              {(versions ?? []).map((version) => (
+                <option key={version.id} value={version.id}>
+                  {version.id}
+                </option>
+              ))}
+            </Select>
+          </SettingRow>
+          <p className="text-xs text-muted-foreground">
+            Cambiar de versión puede dañar el mundo y todavía no hay backup. Solo 1.17 o superior.
+          </p>
+        </PanelContent>
+      </Panel>
 
       <div className="stripe-divider border-x border-line" />
 

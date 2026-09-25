@@ -11,6 +11,8 @@ export interface WorldSizes {
   logs: number
   total: number
   free: number
+  /** Semilla leída de `level.dat` (string: es un long de 64 bits). Sirve con el server apagado. */
+  seed: string | null
 }
 
 /** Una versión vanilla del manifest de Mojang. */
@@ -55,6 +57,8 @@ export interface ServerSummary {
   status: Status
   players: string[]
   version: string | null
+  /** Versión elegida en el perfil (se descarga al arrancar). */
+  mcVersion: string | null
   /** mtime de `server-icon.png`, o null si el servidor no tiene icono propio. */
   iconVersion: number | null
 }
@@ -79,6 +83,8 @@ export interface ActiveServer {
   ops: string[]
   /** Nombres en la lista blanca (de `whitelist.json`). */
   whitelist: string[]
+  /** IPs baneadas (de `banned-ips.json`). */
+  bannedIps: string[]
   /** Semilla del mundo, del comando `/seed` (null si no se pidió). */
   seed: string | null
   /** Tamaños calculados a demanda por `worldInfo` (null hasta entonces). */
@@ -112,6 +118,8 @@ export interface NomadBridge {
   /** `op` | `deop` | `kick` | `ban` | `pardon` | `whitelistAdd` | `whitelistRemove`. */
   playerAction(id: string, action: string, name: string): void
   setWhitelistEnabled(id: string, enabled: boolean): void
+  /** Cambia la versión del perfil (se descarga al próximo arranque; server apagado). */
+  setVersion(id: string, version: string): void
   /** Pide la semilla al servidor (manda `seed` por consola; requiere estar encendido). */
   requestSeed(id: string): void
   /** Calcula tamaños/espacio; el resultado llega en `active.world`. */

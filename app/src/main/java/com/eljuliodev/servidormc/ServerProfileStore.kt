@@ -59,6 +59,11 @@ object ServerProfileStore {
         save(context, list(context).map { if (it.id == id) it.copy(ramMb = ramMb) else it })
     }
 
+    /** Cambia la versión de Minecraft del perfil (se descarga al próximo arranque). */
+    fun setVersion(context: Context, id: String, version: String?) {
+        save(context, list(context).map { if (it.id == id) it.copy(mcVersion = version) else it })
+    }
+
     private fun save(context: Context, profiles: List<ServerProfile>) {
         val array = JSONArray()
         profiles.forEach { p ->

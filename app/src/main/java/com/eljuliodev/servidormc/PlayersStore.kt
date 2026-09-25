@@ -9,16 +9,18 @@ import java.io.File
  */
 object PlayersStore {
 
-    fun ops(dir: File): List<String> = names(File(dir, "ops.json"))
+    fun ops(dir: File): List<String> = entries(File(dir, "ops.json"), "name")
 
-    fun whitelist(dir: File): List<String> = names(File(dir, "whitelist.json"))
+    fun whitelist(dir: File): List<String> = entries(File(dir, "whitelist.json"), "name")
 
-    private fun names(file: File): List<String> {
+    fun bannedIps(dir: File): List<String> = entries(File(dir, "banned-ips.json"), "ip")
+
+    private fun entries(file: File, key: String): List<String> {
         if (!file.exists()) return emptyList()
         return runCatching {
             val array = JSONArray(file.readText())
             (0 until array.length()).mapNotNull { i ->
-                array.getJSONObject(i).optString("name").takeIf { it.isNotEmpty() }
+                array.getJSONObject(i).optString(key).takeIf { it.isNotEmpty() }
             }
         }.getOrDefault(emptyList())
     }

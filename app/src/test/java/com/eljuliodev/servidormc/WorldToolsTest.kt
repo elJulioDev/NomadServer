@@ -8,7 +8,9 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 import java.io.File
+import java.util.zip.GZIPOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -78,6 +80,37 @@ class WorldToolsTest {
     fun `importing rejects a zip without a world`() {
         val dir = temp.newFolder()
         assertTrue(WorldTools.importZip(dir, ByteArrayInputStream(zip("readme.txt" to "hola"))).isFailure)
+    }
+
+    private fun levelDat(seed: Long): ByteArray {
+        val out = ByteArrayOutputStream()
+        GZIPOutputStream(out).use { gzip ->
+            DataOutputStream(gzip).use { data ->
+                data.writeByte(10) // TAG_Compound raíz
+                data.writeUTF("")
+                data.writeByte(10) // TAG_Compound "Data"
+                data.writeUTF("Data")
+                data.writeByte(4) // TAG_Long "RandomSeed"
+                data.writeUTF("RandomSeed")
+                data.writeLong(seed)
+                data.writeByte(0) // fin Data
+                data.writeByte(0) // fin raíz
+            }
+        }
+        return out.toByteArray()
+    }
+
+    @Test
+    fun `seed is read from level dat when the server is off`() {
+        val dir = temp.newFolder()
+        File(dir, "world").mkdirs()
+        File(dir, "world/level.dat").writeBytes(levelDat(-4172144997902289642L))
+        assertEquals(-4172144997902289642L, WorldTools.seed(dir))
+    }
+
+    @Test
+    fun `seed is null without a level dat`() {
+        assertEquals(null, WorldTools.seed(temp.newFolder()))
     }
 
     @Test

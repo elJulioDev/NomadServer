@@ -85,6 +85,7 @@ export default function App() {
           active={snapshot.active?.id === selected.id ? snapshot.active : null}
           logs={logs}
           lanAddress={snapshot.lanAddress}
+          versions={snapshot.versions}
           tab={tab}
           onTabChange={setTab}
           onCommand={sendCommand}

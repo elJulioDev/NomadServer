@@ -365,18 +365,21 @@ export function Select({
   onChange,
   children,
   className = '',
+  disabled = false,
 }: {
   value: string
   onChange: (value: string) => void
   children: ReactNode
   className?: string
+  disabled?: boolean
 }) {
   return (
     <select
       value={value}
+      disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
       className={cn(
-        'h-8 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 [&>option]:bg-popover',
+        'h-8 rounded-md border border-input bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:opacity-50 [&>option]:bg-popover',
         className,
       )}
     >
