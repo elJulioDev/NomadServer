@@ -308,6 +308,8 @@ export function DetailScreen({
               onWorldInfo={() => bridge.worldInfo(server.id)}
               onRegenerate={(dimension) => bridge.regenerateWorld(server.id, dimension)}
               onImport={() => bridge.importWorld(server.id)}
+              onOptimizePreview={() => bridge.optimizePreview(server.id)}
+              onOptimize={() => bridge.optimizeWorld(server.id)}
             />
           )}
           {tab === 'settings' && (
@@ -670,6 +672,8 @@ function WorldTab({
   onWorldInfo,
   onRegenerate,
   onImport,
+  onOptimizePreview,
+  onOptimize,
 }: {
   active: ActiveServer | null
   status: Status
@@ -677,12 +681,17 @@ function WorldTab({
   onWorldInfo: () => void
   onRegenerate: (dimension: 'nether' | 'end') => void
   onImport: () => void
+  onOptimizePreview: () => void
+  onOptimize: () => void
 }) {
   const running = status === 'Running'
   const world = active?.world ?? null
+  const optimize = active?.optimize ?? null
   // Online manda `/seed`; apagado se lee de level.dat (worldInfo lo trae).
   const seed = active?.seed ?? world?.seed ?? null
-  const [pending, setPending] = useState<'nether' | 'end' | 'import' | null>(null)
+  const [pending, setPending] = useState<'nether' | 'end' | 'import' | 'optimize' | null>(null)
+  const deviceUsed = world && world.deviceTotal > 0 ? world.deviceTotal - world.free : 0
+  const devicePercent = world && world.deviceTotal > 0 ? Math.round((deviceUsed / world.deviceTotal) * 100) : 0
 
   // Tamaños a demanda al abrir la pestaña (no en el push de 250 ms).
   useEffect(() => {
@@ -733,6 +742,9 @@ function WorldTab({
         <PanelContent className="flex flex-col gap-4">
           {world ? (
             <>
+              <p className="text-xs text-muted-foreground">
+                Las barras son la proporción sobre el total del servidor, no un límite.
+              </p>
               <SpaceRow
                 icon="globe"
                 label="Mundo"
@@ -763,10 +775,28 @@ function WorldTab({
                   {formatBytes(world.total)} · {world.totalFiles} archivos
                 </span>
               </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Libre en el dispositivo</span>
-                <span className="font-mono tabular-nums">{formatBytes(world.free)}</span>
-              </div>
+              {world.deviceTotal > 0 && (
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Dispositivo</span>
+                    <span className="font-mono tabular-nums">
+                      {formatBytes(deviceUsed)} / {formatBytes(world.deviceTotal)}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-secondary">
+                    <div
+                      className={cn('h-full rounded-full', devicePercent > 90 ? 'bg-destructive' : 'bg-info')}
+                      style={{ width: `${devicePercent}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{formatBytes(world.free)} libres</p>
+                  {world.free < 1_073_741_824 && (
+                    <p className="text-xs text-destructive">
+                      Queda menos de 1 GB libre: importar o generar mundo puede fallar.
+                    </p>
+                  )}
+                </div>
+              )}
             </>
           ) : (
             <p className="py-4 text-center text-sm text-muted-foreground">Calculando…</p>
@@ -806,6 +836,60 @@ function WorldTab({
           )}
         </PanelContent>
       </Panel>
+
+      <div className="stripe-divider border-x border-line" />
+
+      <Panel className="screen-line-top-none">
+        <PanelHeader>
+          <PanelTitle className="text-lg">Optimizar</PanelTitle>
+        </PanelHeader>
+        <PanelContent className="flex flex-col gap-4">
+          <p className="text-xs text-muted-foreground">
+            Quita chunks que nunca se visitaron (Minecraft los regenera igual desde la semilla) y
+            logs de más de 7 días. Se pierden los cambios hechos a mano en esos chunks. Server apagado.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={onOptimizePreview}>
+              <Icon name="activity" className="size-3.5" />
+              Analizar
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={running || !optimize}
+              onClick={() => setPending('optimize')}
+            >
+              <Icon name="restart" className="size-3.5" />
+              Optimizar
+            </Button>
+          </div>
+          {optimize && (
+            <div className="flex flex-col gap-1 text-xs text-muted-foreground">
+              <span>
+                {optimize.chunks} chunks · {optimize.unvisited} sin visitar
+              </span>
+              <span>
+                Logs viejos: {optimize.logFiles} ({formatBytes(optimize.logBytes)})
+              </span>
+              <span className="text-foreground">Liberable: {formatBytes(optimize.reclaimable)}</span>
+            </div>
+          )}
+          {running && <p className="text-xs text-muted-foreground">Detén el servidor para optimizar.</p>}
+        </PanelContent>
+      </Panel>
+
+      {pending === 'optimize' && (
+        <ConfirmDialog
+          title="¿Optimizar el mundo?"
+          body="Se quitan los chunks sin visitas y los logs viejos. No se puede deshacer y todavía no hay backup."
+          confirm="Optimizar"
+          onConfirm={() => {
+            setPending(null)
+            onOptimize()
+          }}
+          onDismiss={() => setPending(null)}
+        />
+      )}
 
       {pending === 'import' && (
         <ConfirmDialog

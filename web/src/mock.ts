@@ -5,6 +5,7 @@ import {
   type ServerSummary,
   type FileEntry,
   type FileListing,
+  type OptimizePreview,
   type Snapshot,
   type VersionOption,
   type WorldSizes,
@@ -79,6 +80,7 @@ export function createMock(): NomadBridge {
   const bannedIps: Record<string, string[]> = {}
   const bannedPlayers: Record<string, string[]> = {}
   const fileListings: Record<string, FileListing | null> = {}
+  const optimizePreviews: Record<string, OptimizePreview | null> = {}
   const worlds: Record<string, WorldSizes | null> = {}
   const timers = new Map<string, number>()
   let versions: VersionOption[] | undefined
@@ -108,6 +110,7 @@ export function createMock(): NomadBridge {
         bannedIps: bannedIps[active.id] ?? [],
         bannedPlayers: bannedPlayers[active.id] ?? [],
         files: fileListings[active.id] ?? null,
+        optimize: optimizePreviews[active.id] ?? null,
         seed: seeds[active.id] ?? null,
         world: worlds[active.id] ?? null,
       }
@@ -241,6 +244,7 @@ export function createMock(): NomadBridge {
         logs: 345_678,
         total: 78_000_000,
         free: 42_000_000_000,
+        deviceTotal: 128_000_000_000,
         worldFiles: 842,
         netherFiles: 96,
         endFiles: 41,
@@ -256,6 +260,25 @@ export function createMock(): NomadBridge {
     },
     listFiles: (id, path) => {
       fileListings[id] = { path, entries: MOCK_TREE[path] ?? [] }
+      emit()
+    },
+    optimizePreview: (id) => {
+      optimizePreviews[id] = {
+        chunks: 845,
+        unvisited: 512,
+        regionBefore: 12_345_678,
+        regionAfter: 4_500_000,
+        logFiles: 3,
+        logBytes: 60_000,
+        reclaimable: 7_905_678,
+      }
+      emit()
+    },
+    optimizeWorld: (id) => {
+      optimizePreviews[id] = null
+      const current = worlds[id]
+      if (current) worlds[id] = { ...current, world: 4_500_000, worldFiles: 333 }
+      push(id, 'Mundo optimizado (mock): 512 chunks y 3 logs')
       emit()
     },
     regenerateWorld: (id, dimension) => {

@@ -2,6 +2,17 @@ export type Status = 'Stopped' | 'Starting' | 'Running' | 'Stopping' | 'Error'
 
 export type Tab = 'panel' | 'console' | 'players' | 'world' | 'files' | 'settings'
 
+/** Resultado/vista previa del optimizador de mundos. */
+export interface OptimizePreview {
+  chunks: number
+  unvisited: number
+  regionBefore: number
+  regionAfter: number
+  logFiles: number
+  logBytes: number
+  reclaimable: number
+}
+
 /** Entrada del explorador de archivos del servidor. */
 export interface FileEntry {
   name: string
@@ -24,6 +35,8 @@ export interface WorldSizes {
   logs: number
   total: number
   free: number
+  /** Capacidad total del dispositivo. */
+  deviceTotal: number
   worldFiles: number
   netherFiles: number
   endFiles: number
@@ -106,6 +119,8 @@ export interface ActiveServer {
   bannedPlayers: string[]
   /** Último listado de archivos pedido con `listFiles` (null hasta entonces). */
   files: FileListing | null
+  /** Vista previa del optimizador pedida con `optimizePreview` (null hasta entonces). */
+  optimize: OptimizePreview | null
   /** Semilla del mundo, del comando `/seed` (null si no se pidió). */
   seed: string | null
   /** Tamaños calculados a demanda por `worldInfo` (null hasta entonces). */
@@ -141,6 +156,10 @@ export interface NomadBridge {
   setWhitelistEnabled(id: string, enabled: boolean): void
   /** Lista un directorio del servidor (`path` relativo a su carpeta); llega en `active.files`. */
   listFiles(id: string, path: string): void
+  /** Analiza cuánto se puede liberar; el resultado llega en `active.optimize`. */
+  optimizePreview(id: string): void
+  /** Aplica el optimizador (chunks nunca visitados + logs viejos). Server apagado. */
+  optimizeWorld(id: string): void
   /** Cambia la versión del perfil (se descarga al próximo arranque; server apagado). */
   setVersion(id: string, version: string): void
   /** Pide la semilla al servidor (manda `seed` por consola; requiere estar encendido). */

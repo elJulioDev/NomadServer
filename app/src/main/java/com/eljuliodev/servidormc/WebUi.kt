@@ -90,6 +90,9 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
     /** Último listado de archivos por servidor (navegación a demanda). */
     private val filesCache = mutableMapOf<String, JSONObject>()
 
+    /** Vista previa del optimizador por servidor (a demanda). */
+    private val optimizeCache = mutableMapOf<String, JSONObject>()
+
     /** `.zip` de mundo elegido para [importWorld]; el picker se lanza desde el bridge. */
     private var pendingWorldImport: String? = null
     private val pickWorldZip = (activity as? ComponentActivity)?.registerForActivityResult(
@@ -218,6 +221,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             playersCache.remove(id)
             worldCache.remove(id)
             filesCache.remove(id)
+            optimizeCache.remove(id)
             observeActive()
             schedulePush()
         }
@@ -323,6 +327,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                 playersCache.remove(id)
                 worldCache.remove(id)
                 filesCache.remove(id)
+                optimizeCache.remove(id)
                 if (activeId == id) activeId = null
                 reload()
                 observeActive()
@@ -386,13 +391,45 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                 val info = withContext(Dispatchers.IO) {
                     runCatching {
                         val dir = File(activity.filesDir, "servers/$id")
-                        WorldTools.sizes(dir, freeBytes())
+                        WorldTools.sizes(dir, freeBytes(), deviceTotalBytes())
                             .toJson()
                             // Como string: la semilla es un long de 64 bits y JS perdería precisión.
                             .put("seed", WorldTools.seed(dir)?.toString() ?: JSONObject.NULL)
                     }.getOrNull()
                 }
                 if (info != null) worldCache[id] = info
+                schedulePush()
+            }
+        }
+
+        /** Cuánto se puede liberar, sin tocar nada (vista previa del optimizador). */
+        @JavascriptInterface
+        fun optimizePreview(id: String) = onMain {
+            scope.launch {
+                val preview = withContext(Dispatchers.IO) {
+                    runCatching { RegionOptimizer.preview(File(activity.filesDir, "servers/$id"), worldsOf(id)) }
+                        .getOrNull()
+                }
+                if (preview != null) optimizeCache[id] = preview.toJson()
+                schedulePush()
+            }
+        }
+
+        /** Aplica el optimizador (chunks nunca visitados + logs viejos). Requiere server apagado. */
+        @JavascriptInterface
+        fun optimizeWorld(id: String) = onMain {
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { RegionOptimizer.optimize(File(activity.filesDir, "servers/$id"), worldsOf(id)) }
+                        .getOrNull()
+                }
+                optimizeCache.remove(id)
+                worldCache.remove(id)
+                filesCache.remove(id)
+                toast(
+                    result?.let { "Optimizado: ${it.unvisited} chunks y ${it.logFiles} logs" }
+                        ?: "No se pudo optimizar",
+                )
                 schedulePush()
             }
         }
@@ -592,6 +629,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
                     put("seed", manager.seed.value ?: JSONObject.NULL)
                     put("world", worldCache[id] ?: JSONObject.NULL)
                     put("files", filesCache[id] ?: JSONObject.NULL)
+                    put("optimize", optimizeCache[id] ?: JSONObject.NULL)
                     put("tps", manager.tps.value ?: JSONObject.NULL)
                     put("startProgress", manager.startProgress.value)
                     put("autoStopSeconds", manager.autoStopSeconds.value ?: JSONObject.NULL)
@@ -639,6 +677,25 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
     private fun freeBytes(): Long =
         runCatching { StatFs(activity.filesDir.path).availableBytes }.getOrDefault(0L)
+
+    private fun deviceTotalBytes(): Long =
+        runCatching { StatFs(activity.filesDir.path).totalBytes }.getOrDefault(0L)
+
+    /** Las tres dimensiones del servidor, según su `level-name`. */
+    private fun worldsOf(id: String): List<String> {
+        val name = WorldTools.levelName(File(activity.filesDir, "servers/$id"))
+        return listOf(name, "${name}_nether", "${name}_the_end")
+    }
+
+    private fun RegionOptimizer.Preview.toJson(): JSONObject = JSONObject().apply {
+        put("chunks", chunks)
+        put("unvisited", unvisited)
+        put("regionBefore", regionBefore)
+        put("regionAfter", regionAfter)
+        put("logFiles", logFiles)
+        put("logBytes", logBytes)
+        put("reclaimable", reclaimable)
+    }
 
     private fun toast(message: String) {
         Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()

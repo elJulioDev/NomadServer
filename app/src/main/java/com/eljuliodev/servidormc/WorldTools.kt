@@ -1,8 +1,6 @@
 package com.eljuliodev.servidormc
 
 import org.json.JSONObject
-import java.io.BufferedInputStream
-import java.io.DataInputStream
 import java.io.File
 import java.io.InputStream
 import java.util.zip.GZIPInputStream
@@ -17,6 +15,8 @@ data class WorldSizes(
     val logs: Long,
     val total: Long,
     val free: Long,
+    /** Capacidad total del dispositivo (para calcular el usado). */
+    val deviceTotal: Long,
     val worldFiles: Long,
     val netherFiles: Long,
     val endFiles: Long,
@@ -30,6 +30,7 @@ data class WorldSizes(
         put("logs", logs)
         put("total", total)
         put("free", free)
+        put("deviceTotal", deviceTotal)
         put("worldFiles", worldFiles)
         put("netherFiles", netherFiles)
         put("endFiles", endFiles)
@@ -65,7 +66,7 @@ object WorldTools {
     }
 
     /** Tamaño en bytes de cada parte del servidor + espacio libre del dispositivo. */
-    fun sizes(dir: File, freeBytes: Long): WorldSizes {
+    fun sizes(dir: File, freeBytes: Long, deviceTotalBytes: Long = 0L): WorldSizes {
         val name = levelName(dir)
         fun statOf(path: String): Pair<Long, Long> {
             val file = File(dir, path)
@@ -93,6 +94,7 @@ object WorldTools {
             logs = logs,
             total = total,
             free = freeBytes,
+            deviceTotal = deviceTotalBytes,
             worldFiles = worldFiles,
             netherFiles = netherFiles,
             endFiles = endFiles,
@@ -104,87 +106,11 @@ object WorldTools {
      * Semilla del mundo leyendo `<level-name>/level.dat` (NBT comprimido con gzip → `Data.RandomSeed`).
      * Sirve con el servidor apagado, cuando no se puede usar el comando `/seed`.
      */
-    fun seed(dir: File): Long? = runCatching {
+    fun seed(dir: File): Long? {
         val level = File(File(dir, levelName(dir)), "level.dat")
         if (!level.exists()) return null
-        DataInputStream(BufferedInputStream(GZIPInputStream(level.inputStream()))).use { data ->
-            if (data.readUnsignedByte() != TAG_COMPOUND) return null
-            readName(data) // nombre del compuesto raíz
-            findSeed(data)
-        }
-    }.getOrNull()
-
-    private const val TAG_END = 0
-    private const val TAG_BYTE = 1
-    private const val TAG_SHORT = 2
-    private const val TAG_INT = 3
-    private const val TAG_LONG = 4
-    private const val TAG_FLOAT = 5
-    private const val TAG_DOUBLE = 6
-    private const val TAG_BYTE_ARRAY = 7
-    private const val TAG_STRING = 8
-    private const val TAG_LIST = 9
-    private const val TAG_COMPOUND = 10
-    private const val TAG_INT_ARRAY = 11
-    private const val TAG_LONG_ARRAY = 12
-
-    /** Recorre el compuesto raíz buscando `Data` → `RandomSeed`. */
-    private fun findSeed(data: DataInputStream): Long? {
-        while (true) {
-            val type = data.readUnsignedByte()
-            if (type == TAG_END) return null
-            val name = readName(data)
-            when {
-                type == TAG_COMPOUND && name == "Data" -> return findSeed(data)
-                type == TAG_LONG && name == "RandomSeed" -> return data.readLong()
-                else -> skip(data, type)
-            }
-        }
-    }
-
-    private fun skipCompound(data: DataInputStream) {
-        while (true) {
-            val type = data.readUnsignedByte()
-            if (type == TAG_END) return
-            skipFully(data, data.readUnsignedShort())
-            skip(data, type)
-        }
-    }
-
-    private fun skip(data: DataInputStream, type: Int) {
-        when (type) {
-            TAG_BYTE -> skipFully(data, 1)
-            TAG_SHORT -> skipFully(data, 2)
-            TAG_INT, TAG_FLOAT -> skipFully(data, 4)
-            TAG_LONG, TAG_DOUBLE -> skipFully(data, 8)
-            TAG_BYTE_ARRAY -> skipFully(data, data.readInt())
-            TAG_STRING -> skipFully(data, data.readUnsignedShort())
-            TAG_LIST -> {
-                val elementType = data.readUnsignedByte()
-                val length = data.readInt()
-                repeat(length) { skip(data, elementType) }
-            }
-            TAG_COMPOUND -> skipCompound(data)
-            TAG_INT_ARRAY -> skipFully(data, data.readInt() * 4)
-            TAG_LONG_ARRAY -> skipFully(data, data.readInt() * 8)
-            else -> error("TAG de NBT desconocido: $type")
-        }
-    }
-
-    private fun readName(data: DataInputStream): String {
-        val bytes = ByteArray(data.readUnsignedShort())
-        data.readFully(bytes)
-        return String(bytes, Charsets.UTF_8)
-    }
-
-    private fun skipFully(data: DataInputStream, count: Int) {
-        var remaining = count
-        val buffer = ByteArray(8192)
-        while (remaining > 0) {
-            val read = data.read(buffer, 0, minOf(buffer.size, remaining))
-            if (read < 0) error("NBT truncado")
-            remaining -= read
-        }
+        return runCatching { GZIPInputStream(level.inputStream()).use { Nbt.findLong(it, "RandomSeed") } }
+            .getOrNull()
     }
 
     /**
