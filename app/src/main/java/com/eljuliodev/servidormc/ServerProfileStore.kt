@@ -36,6 +36,11 @@ object ServerProfileStore {
         save(context, list(context).filterNot { it.id == id })
     }
 
+    /** Mantiene el perfil en sincronía cuando cambian los slots desde "Ajustes". */
+    fun setMaxPlayers(context: Context, id: String, maxPlayers: Int) {
+        save(context, list(context).map { if (it.id == id) it.copy(maxPlayers = maxPlayers) else it })
+    }
+
     private fun save(context: Context, profiles: List<ServerProfile>) {
         val array = JSONArray()
         profiles.forEach { p ->
