@@ -123,15 +123,17 @@ class WorldToolsTest {
     @Test
     fun `sizes counts each part of the server`() {
         val dir = temp.newFolder()
-        File(dir, "world").mkdirs()
-        File(dir, "world/level.dat").writeText("12345")
-        File(dir, "world_nether").mkdirs()
-        File(dir, "world_nether/nether.dat").writeText("123")
+        File(dir, "world/region").mkdirs()
+        File(dir, "world/region/r.0.0.mca").writeText("12345")
+        File(dir, "world_nether/region").mkdirs()
+        File(dir, "world_nether/region/r.0.0.mca").writeText("123")
 
         val sizes = WorldTools.sizes(dir, freeBytes = 1000)
         assertEquals(5L, sizes.world)
         assertEquals(3L, sizes.nether)
         assertEquals(0L, sizes.end)
         assertEquals(1000L, sizes.free)
+        assertEquals(1L, sizes.worldFiles)
+        assertEquals(2L, sizes.totalFiles)
     }
 }

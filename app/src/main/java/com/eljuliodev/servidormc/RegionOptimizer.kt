@@ -54,10 +54,10 @@ object RegionOptimizer {
         var unvisited = 0
         var before = 0L
         var after = 0L
-        worldDirs(dir).forEach { worldDir ->
-            File(worldDir, "region").listFiles { file -> file.name.endsWith(".mca") }?.forEach { region ->
+        WorldLayout.dimensions(dir).forEach { dimension ->
+            File(dimension.dir, "region").listFiles { file -> file.name.endsWith(".mca") }?.forEach { region ->
                 regionFiles++
-                val result = optimizeRegion(region, worldDir, mode, apply)
+                val result = optimizeRegion(region, dimension.dir, mode, apply)
                 chunks += result.kept + result.removed
                 unvisited += result.removed
                 before += result.bytesBefore
@@ -67,13 +67,6 @@ object RegionOptimizer {
         val (logFiles, logBytes) = cleanLogs(dir, apply)
         return Preview(mode.id, regionFiles, chunks, unvisited, before, after, logFiles, logBytes)
     }
-
-    /**
-     * Carpetas del servidor que contienen `region/` (overworld, nether, end…). Se descubren así
-     * en vez de adivinar por `level-name`, para no depender de que exista `server.properties`.
-     */
-    private fun worldDirs(dir: File): List<File> =
-        dir.listFiles { file -> file.isDirectory && File(file, "region").isDirectory }?.toList().orEmpty()
 
     private data class Chunk(val index: Int, val compression: Int, val payload: ByteArray, val timestamp: Int)
 

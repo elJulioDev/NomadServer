@@ -67,9 +67,7 @@ object WorldTools {
 
     /** Tamaño en bytes de cada parte del servidor + espacio libre del dispositivo. */
     fun sizes(dir: File, freeBytes: Long, deviceTotalBytes: Long = 0L): WorldSizes {
-        val name = levelName(dir)
-        fun statOf(path: String): Pair<Long, Long> {
-            val file = File(dir, path)
+        fun statOf(file: File): Pair<Long, Long> {
             if (!file.exists()) return 0L to 0L
             var bytes = 0L
             var files = 0L
@@ -81,11 +79,21 @@ object WorldTools {
             }
             return bytes to files
         }
-        val (world, worldFiles) = statOf(name)
-        val (nether, netherFiles) = statOf("${name}_nether")
-        val (end, endFiles) = statOf("${name}_the_end")
-        val (logs, _) = statOf("logs")
-        val (total, totalFiles) = statOf(".")
+
+        val dims = WorldLayout.dimensions(dir).map { it to statOf(it.dir) }
+        // Si el overworld clásico contiene DIM-1/DIM1 adentro, se restan para no contarlos dos veces.
+        fun sizeFor(label: String): Pair<Long, Long> {
+            val own = dims.filter { it.first.label == label }
+            val bytes = own.sumOf { (dim, stat) -> stat.first - nestedSize(dims, dim, first = true) }
+            val files = own.sumOf { (dim, stat) -> stat.second - nestedSize(dims, dim, first = false) }
+            return bytes to files
+        }
+
+        val (world, worldFiles) = sizeFor("Mundo")
+        val (nether, netherFiles) = sizeFor("Nether")
+        val (end, endFiles) = sizeFor("End")
+        val (logs, _) = statOf(File(dir, "logs"))
+        val (total, totalFiles) = statOf(dir)
         return WorldSizes(
             world = world,
             nether = nether,
@@ -102,34 +110,40 @@ object WorldTools {
         )
     }
 
+    /** Tamaño de las dimensiones anidadas dentro de [dim] (evita doble conteo). */
+    private fun nestedSize(
+        dims: List<Pair<WorldLayout.Dimension, Pair<Long, Long>>>,
+        dim: WorldLayout.Dimension,
+        first: Boolean,
+    ): Long = dims
+        .filter { (other, _) -> other.dir != dim.dir && other.dir.path.startsWith(dim.dir.path + File.separator) }
+        .sumOf { (_, stat) -> if (first) stat.first else stat.second }
+
     /**
-     * Semilla del mundo leyendo `<level-name>/level.dat` (NBT comprimido con gzip → `Data.RandomSeed`).
+     * Semilla del mundo leyendo `level.dat` (NBT comprimido con gzip → `Data.RandomSeed`).
      * Sirve con el servidor apagado, cuando no se puede usar el comando `/seed`.
      */
     fun seed(dir: File): Long? {
-        val level = File(File(dir, levelName(dir)), "level.dat")
-        if (!level.exists()) return null
-        return runCatching { GZIPInputStream(level.inputStream()).use { Nbt.findLong(it, "RandomSeed") } }
+        val level = WorldLayout.levels(dir).firstOrNull() ?: return null
+        val dat = File(level, "level.dat")
+        if (!dat.exists()) return null
+        return runCatching { GZIPInputStream(dat.inputStream()).use { Nbt.findLong(it, "RandomSeed") } }
             .getOrNull()
     }
 
     /**
      * Borra la carpeta de una dimensión para que Minecraft la regenere al arrancar.
-     * Cubre el layout moderno (`<level>_nether` / `<level>_the_end`) y el viejo (`world/DIM-1`, `DIM1`).
+     * Cubre el layout clásico (`<level>_nether`, `world/DIM-1`) y el 26.1+ (`dimensions/minecraft/...`).
      */
     fun regenerate(dir: File, dimension: String): Boolean {
-        val name = levelName(dir)
-        val targets = when (dimension) {
-            NETHER -> listOf("${name}_nether", "$name/DIM-1")
-            END -> listOf("${name}_the_end", "$name/DIM1")
-            else -> return false
-        }
+        val levels = WorldLayout.levels(dir).ifEmpty { listOf(File(dir, levelName(dir))) }
         var deleted = false
-        targets.forEach { relative ->
-            val file = File(dir, relative)
-            if (file.exists()) {
-                file.deleteRecursively()
-                deleted = true
+        levels.forEach { level ->
+            WorldLayout.candidates(level, dimension).forEach { candidate ->
+                if (candidate.exists()) {
+                    candidate.deleteRecursively()
+                    deleted = true
+                }
             }
         }
         return deleted
