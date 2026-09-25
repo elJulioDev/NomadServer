@@ -22,3 +22,6 @@ app/src/main/assets/jre.zip
 
 # UI web (Vite): dependencias de desarrollo, ver web/
 web/node_modules/
+
+# Sesiones de compilación de Kotlin
+.kotlin/

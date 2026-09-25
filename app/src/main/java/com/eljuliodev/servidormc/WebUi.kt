@@ -192,12 +192,15 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
      */
     fun onResume() {
         resumed = true
+        // La RAM sólo se sondea con la UI visible (ver ServerManager.monitorRam).
+        app.setUiVisible(true)
         view.onResume()
         schedulePush()
     }
 
     fun onPause() {
         resumed = false
+        app.setUiVisible(false)
         view.onPause()
     }
 
@@ -576,7 +579,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         activeJobs.clear()
         val manager = activeId?.let(app::managerFor) ?: return
         activeJobs += scope.launch { manager.status.collect { schedulePush() } }
-        activeJobs += scope.launch { manager.logs.collect { schedulePush() } }
+        activeJobs += scope.launch { manager.logSignal.collect { schedulePush() } }
         activeJobs += scope.launch { manager.ramUsedMb.collect { schedulePush() } }
         activeJobs += scope.launch { manager.players.collect { schedulePush() } }
         activeJobs += scope.launch { manager.tps.collect { schedulePush() } }
@@ -682,16 +685,19 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
      * (`logsReset`).
      */
     private fun putActiveLogs(target: JSONObject, id: String, manager: ServerManager) {
+        val (window, total) = manager.logSnapshot()
         val delta = logDelta(
             sameServer = lastLogServer == id,
-            logs = manager.logs.value,
-            total = manager.logTotal,
+            logs = window,
+            total = total,
             lastTotal = lastLogTotal,
         )
         target.put("logs", JSONArray(delta.lines))
         target.put("logsReset", delta.reset)
+        // Número absoluto de líneas: la web lo usa como clave estable del log.
+        target.put("logTotal", total)
         lastLogServer = id
-        lastLogTotal = manager.logTotal
+        lastLogTotal = total
     }
 
     private fun settingsOf(id: String): ServerSettings =

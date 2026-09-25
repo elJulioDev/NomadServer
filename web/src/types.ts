@@ -105,6 +105,8 @@ export interface ActiveServer {
   logs: string[]
   /** true cuando hay que reemplazar el log acumulado en vez de añadir. */
   logsReset: boolean
+  /** Líneas totales escritas por el server (clave estable para el render del log). */
+  logTotal: number
   settings: ServerSettings
   /** TPS 0..20 (estimados), o null si está apagado. */
   tps: number | null

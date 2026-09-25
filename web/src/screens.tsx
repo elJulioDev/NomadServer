@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useRef,
   useState,
@@ -287,7 +288,9 @@ export function DetailScreen({
               onExtend={() => bridge.extendStartTimer(server.id)}
             />
           )}
-          {tab === 'console' && <ConsoleTab logs={logs} status={status} onCommand={onCommand} />}
+          {tab === 'console' && (
+            <ConsoleTab logs={logs} total={active?.logTotal ?? 0} status={status} onCommand={onCommand} />
+          )}
           {tab === 'players' && (
             <PlayersTab
               active={active}
@@ -1203,10 +1206,13 @@ const SAY = /^\[Server\]\s?(.*)$/
 
 function ConsoleTab({
   logs,
+  total,
   status,
   onCommand,
 }: {
   logs: string[]
+  /** Líneas totales del server: da una clave estable a cada línea del render. */
+  total: number
   status: Status
   onCommand: (text: string) => void
 }) {
@@ -1284,7 +1290,11 @@ function ConsoleTab({
             Aún no hay actividad. Enciende el servidor para ver la consola.
           </p>
         ) : (
-          shown.map((line, index) => <LogLine key={index} line={line} />)
+          // Clave estable por número de línea absoluto + `memo`: al llegar una línea nueva,
+          // React no vuelve a diffear las otras 799.
+          shown.map((line, index) => (
+            <LogLine key={total - shown.length + index} line={line} />
+          ))
         )}
       </div>
 
@@ -1310,7 +1320,7 @@ function ConsoleTab({
 }
 
 /** Color de cada línea del log: chat, /say, logros, conexiones, avisos y errores. */
-function LogLine({ line }: { line: string }) {
+const LogLine = memo(function LogLine({ line }: { line: string }) {
   const prefix = line.match(LOG_PREFIX)
   const time = prefix?.[1]
   const channel = prefix?.[2] ?? ''
@@ -1360,7 +1370,7 @@ function LogLine({ line }: { line: string }) {
       <span className={tone}>{content}</span>
     </div>
   )
-}
+})
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 

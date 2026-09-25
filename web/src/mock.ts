@@ -101,6 +101,7 @@ export function createMock(): NomadBridge {
         players: [...active.players],
         logs: reset ? list : list.slice(lastLogCount),
         logsReset: reset,
+        logTotal: list.length,
         settings: settings[active.id] ?? DEFAULT_SETTINGS,
         tps: active.status === 'Running' ? 20 : null,
         startProgress: active.status === 'Running' ? 100 : (progress[active.id] ?? 0),

@@ -39,6 +39,11 @@ class NomadApplication : Application() {
         if (active != null) ServerService.start(this, active) else ServerService.stop(this)
     }
 
+    /** Avisa a todos los managers si la UI está visible (así el sondeo de RAM no corre de fondo). */
+    fun setUiVisible(visible: Boolean) {
+        managers.values.forEach { it.setUiVisible(visible) }
+    }
+
     /** Nombre del perfil (para la notificación). */
     fun serverName(serverId: String): String =
         ServerProfileStore.list(this).firstOrNull { it.id == serverId }?.name ?: "Servidor"

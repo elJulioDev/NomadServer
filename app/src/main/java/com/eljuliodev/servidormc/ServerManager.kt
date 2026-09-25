@@ -1,6 +1,7 @@
 package com.eljuliodev.servidormc
 
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.os.SystemClock
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
@@ -34,8 +35,21 @@ class ServerManager(private val context: Context, private val serverId: String) 
     private val _status = MutableStateFlow(Status.Stopped)
     val status: StateFlow<Status> = _status.asStateFlow()
 
-    private val _logs = MutableStateFlow<List<String>>(emptyList())
-    val logs: StateFlow<List<String>> = _logs.asStateFlow()
+    /**
+     * Ventana de las últimas [MAX_LOG_LINES] líneas. Es un `ArrayDeque` (no una lista inmutable)
+     * para no copiar 2000 elementos **en cada línea**; sólo se copia al armar el delta de la UI.
+     */
+    private val logLines = ArrayDeque<String>()
+
+    /** Cambia con cada línea; los colectores lo usan para empujar el delta (no la lista entera). */
+    private val _logSignal = MutableStateFlow(0L)
+    val logSignal: StateFlow<Long> = _logSignal.asStateFlow()
+
+    /**
+     * Ventana actual del log + contador, leídos bajo el mismo lock. La UI arma el delta con esto:
+     * si se leyera el contador por separado, una línea escrita en medio se perdería.
+     */
+    fun logSnapshot(): Pair<List<String>, Long> = synchronized(this) { logLines.toList() to logTotal }
 
     /**
      * Líneas escritas en total, nunca decrece (la lista sí: es una ventana de 2000).
@@ -86,6 +100,19 @@ class ServerManager(private val context: Context, private val serverId: String) 
     @Volatile
     private var portHintShown = false
 
+    /** Con la app en segundo plano nadie ve la RAM: no se sondea `/proc`. */
+    @Volatile
+    private var uiVisible = false
+
+    /** `Log.i` a logcat sólo en builds debug (con Android Studio enganchado, escribir cada línea es caro). */
+    private val debugLogging =
+        (context.applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+
+    /** La UI (Activity) avisa cuándo está visible para habilitar el sondeo de RAM. */
+    fun setUiVisible(visible: Boolean) {
+        uiVisible = visible
+    }
+
     private val serverDir: File
         get() = File(context.filesDir, "servers/$serverId").apply { mkdirs() }
 
@@ -128,6 +155,9 @@ class ServerManager(private val context: Context, private val serverId: String) 
                 val pb = ProcessBuilder(
                     javaBinary.absolutePath,
                     "-Djava.io.tmpdir=${File(context.cacheDir, "jre-tmp").apply { mkdirs() }}",
+                    // SerialGC usa un solo hilo: gasta menos CPU/batería que G1 (pausas algo más
+                    // largas, irrelevantes para 1-3 jugadores). Ver docs/rendimiento.md.
+                    "-XX:+UseSerialGC",
                     "-Xmx${ramMb}M",
                     "-Xms${ramMb / 2}M",
                     "-jar",
@@ -243,8 +273,10 @@ class ServerManager(private val context: Context, private val serverId: String) 
 
     private suspend fun monitorRam() {
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
-            _ramUsedMb.value = readServerRssMb()
-            delay(5.seconds)
+            // Ojo: recorrer `/proc` cada pocos segundos es de lo más caro que hace la app; con la
+            // app en segundo plano (o la pantalla apagada) no tiene sentido y sólo gasta batería.
+            if (uiVisible) _ramUsedMb.value = readServerRssMb()
+            delay(RAM_POLL_MS)
         }
     }
 
@@ -288,11 +320,8 @@ class ServerManager(private val context: Context, private val serverId: String) 
     }
 
     private fun readRssKb(pid: Long): Int? = runCatching {
-        File("/proc/$pid/status").readLines()
-            .firstOrNull { it.startsWith("VmRSS:") }
-            ?.split(Regex("\\s+"))
-            ?.getOrNull(1)
-            ?.toIntOrNull()
+        File("/proc/$pid/status").useLines { lines -> lines.firstOrNull { it.startsWith("VmRSS:") } }
+            ?.let { WHITESPACE.split(it).getOrNull(1)?.toIntOrNull() }
     }.getOrNull()
 
     private val joinRegex = Regex(""": (\S+) joined the game""")
@@ -303,25 +332,32 @@ class ServerManager(private val context: Context, private val serverId: String) 
 
     @Synchronized
     private fun log(line: String) {
-        Log.i(TAG, line)
-        // El contador sube ANTES de publicar la lista: si el colector de la UI se reanuda en línea
-        // (Main.immediate), ya ve el total nuevo y no se pierde la última línea.
-        logTotal++
-        _logs.value = (_logs.value + line).takeLast(MAX_LOG_LINES)
-        joinRegex.find(line)?.let { m -> _players.value += m.groupValues[1] }
-        leaveRegex.find(line)?.let { m -> _players.value -= m.groupValues[1] }
-        progressRegex.find(line)?.let { m ->
-            m.groupValues[1].toIntOrNull()?.let { _startProgress.value = it }
+        appendLocked(line)
+
+        // Un `contains` es mucho más barato que un regex; sólo se aplica el regex si puede casar.
+        if (line.contains(':')) {
+            if (line.contains(JOINED)) joinRegex.find(line)?.let { m -> _players.value += m.groupValues[1] }
+            if (line.contains(LEFT)) leaveRegex.find(line)?.let { m -> _players.value -= m.groupValues[1] }
         }
-        // ponytail: vanilla no expone TPS real; se aproxima desde "Can't keep up" (ticks atrasados).
-        lagRegex.find(line)?.let { m ->
-            val behind = m.groupValues[1].toIntOrNull() ?: 0
-            _tps.value = (TPS_MAX - behind / 20.0).coerceIn(1.0, TPS_MAX)
+        if (line.contains(SPAWN_AREA)) {
+            progressRegex.find(line)?.let { m ->
+                m.groupValues[1].toIntOrNull()?.let { _startProgress.value = it }
+            }
         }
-        seedRegex.find(line)?.let { m -> _seed.value = m.groupValues[1] }
-        if (!portHintShown && line.contains("Address already in use")) {
+        if (line.contains(TICKS_BEHIND)) {
+            // ponytail: vanilla no expone TPS real; se aproxima desde "Can't keep up" (ticks atrasados).
+            lagRegex.find(line)?.let { m ->
+                val behind = m.groupValues[1].toIntOrNull() ?: 0
+                _tps.value = (TPS_MAX - behind / 20.0).coerceIn(1.0, TPS_MAX)
+            }
+        }
+        if (line.contains(SEED_MARKER)) seedRegex.find(line)?.let { m -> _seed.value = m.groupValues[1] }
+        if (!portHintShown && line.contains(PORT_IN_USE)) {
             portHintShown = true
-            log("[NomadServer] El puerto 25565 estaba ocupado: quedaba un servidor anterior. Toca Detener y vuelve a Iniciar.")
+            appendLocked(
+                "[NomadServer] El puerto 25565 estaba ocupado: quedaba un servidor anterior. " +
+                    "Toca Detener y vuelve a Iniciar.",
+            )
         }
         if (_status.value == Status.Starting && line.contains(DONE_MARKER)) {
             _startProgress.value = 100
@@ -329,6 +365,18 @@ class ServerManager(private val context: Context, private val serverId: String) 
             _status.value = Status.Running
             startAutoStopWindow()
         }
+    }
+
+    /**
+     * Añade la línea a la ventana y avisa a la UI. Publica sólo el **contador** (`logSignal`), no
+     * la lista: copiar las 2000 líneas en cada línea del server era el mayor generador de basura.
+     */
+    private fun appendLocked(line: String) {
+        if (debugLogging) Log.i(TAG, line)
+        logTotal++
+        logLines.addLast(line)
+        if (logLines.size > MAX_LOG_LINES) logLines.removeFirst()
+        _logSignal.value = logTotal
     }
 
     /** Ventana de 2 min: si nadie entra, el server se apaga solo. Se cancela al entrar alguien. */
@@ -360,7 +408,21 @@ class ServerManager(private val context: Context, private val serverId: String) 
         private const val MAX_LOG_LINES = 2000
         private const val TPS_MAX = 20.0
         private const val DONE_MARKER = "Done ("
+
+        /** Marcadores baratos para no correr un regex en cada línea del log. */
+        private const val JOINED = "joined the game"
+        private const val LEFT = "left the game"
+        private const val SPAWN_AREA = "Preparing spawn area"
+        private const val TICKS_BEHIND = "ticks behind"
+        private const val SEED_MARKER = "Seed:"
+        private const val PORT_IN_USE = "Address already in use"
+
         private const val AUTO_STOP_MS = 120_000L
         private const val AUTO_STOP_EXTRA_MS = 60_000L
+
+        /** Sondear `/proc` es caro; con la UI visible, cada 10 s alcanza. */
+        private const val RAM_POLL_MS = 10_000L
+
+        private val WHITESPACE = Regex("\\s+")
     }
 }

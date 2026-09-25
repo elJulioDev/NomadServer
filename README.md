@@ -281,6 +281,9 @@ Además:
   semilla. La distancia no influye. Excepción: cambios hechos sin habitar el chunk (comandos,
   editores externos) podrían perderse; el modo **Compactar** no borra nada.
 - **TPS estimado** — vanilla no expone TPS real; el valor es una aproximación desde el log.
+- **Consumo y calor** — el gasto lo domina el propio Minecraft, no la app: con la UI en segundo
+  plano ésta no sondea RAM ni arma la interfaz, y el JRE arranca con `SerialGC` (menos CPU que G1).
+  La palanca más efectiva sigue siendo bajar `view-distance` / `simulation-distance`.
 - **Sin 24/7 garantizado desde el móvil** — depende de la luz, el Wi-Fi y la batería; para un
   server siempre online usa un equipo externo (ver [Uso rápido](#uso-rápido)).
 - **Una APK ≈ 60 MB** — el JRE va dentro comprimido; es el precio de no depender de nada externo.
