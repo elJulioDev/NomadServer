@@ -31,8 +31,7 @@ import {
 import {
   DEFAULT_SETTINGS,
   DISTANCE_MAX,
-  SIM_MIN,
-  VIEW_MIN,
+  DISTANCE_MIN,
   serverIconUrl,
   type ActiveServer,
   type Difficulty,
@@ -1741,28 +1740,23 @@ function SettingsForm({
         />
         <Slider
           label={`Distancia de visión: ${settings.viewDistance} chunks`}
-          min={VIEW_MIN}
+          min={DISTANCE_MIN}
           max={DISTANCE_MAX}
           step={1}
           value={settings.viewDistance}
-          onChange={(value) =>
-            onChange({
-              viewDistance: value,
-              // `simulation-distance` no puede superar a `view-distance` (vanilla lo ignora).
-              simulationDistance: Math.min(settings.simulationDistance, value),
-            })
-          }
+          onChange={(value) => set('viewDistance', value)}
         />
         <Slider
           label={`Distancia de simulación: ${settings.simulationDistance} chunks`}
-          min={SIM_MIN}
-          max={settings.viewDistance}
+          min={DISTANCE_MIN}
+          max={DISTANCE_MAX}
           step={1}
           value={settings.simulationDistance}
           onChange={(value) => set('simulationDistance', value)}
         />
         <p className="-mt-1 text-xs text-muted-foreground">
-          Menos distancia es menos CPU y menos calor. Se aplica la próxima vez que enciendas el servidor.
+          Menos distancia es menos CPU y menos calor. Vanilla recorta la simulación a la visión si la
+          superas. Se aplica la próxima vez que enciendas el servidor.
         </p>
       </SettingsSection>
     </>

@@ -88,9 +88,8 @@ export const DEFAULT_SETTINGS: ServerSettings = {
   simulationDistance: 4,
 }
 
-/** Rangos aceptados por vanilla; los defaults de la app son más bajos por ser un móvil. */
-export const VIEW_MIN = 3
-export const SIM_MIN = 2
+/** Rango que acepta vanilla para las dos distancias (chunks): son independientes. */
+export const DISTANCE_MIN = 3
 export const DISTANCE_MAX = 32
 
 export interface ServerSummary {

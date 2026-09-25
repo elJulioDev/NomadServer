@@ -46,29 +46,25 @@ data class ServerSettings(
         val DIFFICULTIES = listOf("peaceful", "easy", "normal", "hard")
         const val ICON_SIZE = 64
 
-        /** Rangos que acepta vanilla; el default de la app es conservador (6/4) por ser móvil. */
-        const val VIEW_MIN = 3
-        const val SIM_MIN = 2
+        /** Rango que acepta vanilla para las dos distancias (chunks). */
+        const val DISTANCE_MIN = 3
         const val DISTANCE_MAX = 32
 
         /** Normaliza lo que manda la web: valores raros caen a un default válido. */
-        fun fromJson(json: JSONObject): ServerSettings {
-            val view = json.optInt("viewDistance", 6).coerceIn(VIEW_MIN, DISTANCE_MAX)
-            return ServerSettings(
-                motd = json.optString("motd", "NomadServer").take(200),
-                maxPlayers = json.optInt("maxPlayers", 20).coerceIn(1, 100),
-                gamemode = json.optString("gamemode", "survival").let { if (it in GAMEMODES) it else "survival" },
-                difficulty = json.optString("difficulty", "easy").let { if (it in DIFFICULTIES) it else "easy" },
-                allowFlight = json.optBoolean("allowFlight", false),
-                whitelist = json.optBoolean("whitelist", false),
-                cracked = json.optBoolean("cracked", false),
-                spawnProtection = json.optInt("spawnProtection", 16).coerceIn(0, 1000),
-                viewDistance = view,
-                simulationDistance = json.optInt("simulationDistance", 4)
-                    .coerceIn(SIM_MIN, DISTANCE_MAX)
-                    .coerceAtMost(view),
-            )
-        }
+        fun fromJson(json: JSONObject) = ServerSettings(
+            motd = json.optString("motd", "NomadServer").take(200),
+            maxPlayers = json.optInt("maxPlayers", 20).coerceIn(1, 100),
+            gamemode = json.optString("gamemode", "survival").let { if (it in GAMEMODES) it else "survival" },
+            difficulty = json.optString("difficulty", "easy").let { if (it in DIFFICULTIES) it else "easy" },
+            allowFlight = json.optBoolean("allowFlight", false),
+            whitelist = json.optBoolean("whitelist", false),
+            cracked = json.optBoolean("cracked", false),
+            spawnProtection = json.optInt("spawnProtection", 16).coerceIn(0, 1000),
+            // Independientes: vanilla recorta la simulación a la visión al arrancar, pero aquí no
+            // se pisa una con la otra (el usuario ajusta cada slider por su cuenta).
+            viewDistance = json.optInt("viewDistance", 6).coerceIn(DISTANCE_MIN, DISTANCE_MAX),
+            simulationDistance = json.optInt("simulationDistance", 4).coerceIn(DISTANCE_MIN, DISTANCE_MAX),
+        )
 
         fun read(dir: File): ServerSettings {
             val file = File(dir, "server.properties")
@@ -80,7 +76,6 @@ data class ServerSettings(
                 val eq = line.indexOf('=')
                 if (eq > 0) map[line.substring(0, eq).trim()] = line.substring(eq + 1).trim()
             }
-            val view = (map["view-distance"]?.toIntOrNull() ?: 6).coerceIn(VIEW_MIN, DISTANCE_MAX)
             return ServerSettings(
                 motd = decodeValue(map["motd"] ?: "NomadServer"),
                 maxPlayers = map["max-players"]?.toIntOrNull() ?: 20,
@@ -90,10 +85,10 @@ data class ServerSettings(
                 whitelist = map["white-list"] == "true",
                 cracked = map["online-mode"] == "false",
                 spawnProtection = map["spawn-protection"]?.toIntOrNull() ?: 16,
-                viewDistance = view,
+                viewDistance = (map["view-distance"]?.toIntOrNull() ?: 6)
+                    .coerceIn(DISTANCE_MIN, DISTANCE_MAX),
                 simulationDistance = (map["simulation-distance"]?.toIntOrNull() ?: 4)
-                    .coerceIn(SIM_MIN, DISTANCE_MAX)
-                    .coerceAtMost(view),
+                    .coerceIn(DISTANCE_MIN, DISTANCE_MAX),
             )
         }
 

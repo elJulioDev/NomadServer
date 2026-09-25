@@ -282,6 +282,9 @@ Además:
   (los que tuvieron jugadores), y borra los nunca visitados, que Minecraft regenera igual desde la
   semilla. La distancia no influye. Excepción: cambios hechos sin habitar el chunk (comandos,
   editores externos) podrían perderse; el modo **Compactar** no borra nada.
+- **Simulación recortada por vanilla** — las distancias de visión y simulación se ajustan por
+  separado en *Ajustes*, pero Minecraft recorta `simulation-distance` a `view-distance` al arrancar:
+  subirla por encima de la visión no tiene efecto.
 - **TPS estimado** — vanilla no expone TPS real; el valor es una aproximación desde el log.
 - **Consumo y calor** — el gasto lo domina el propio Minecraft, no la app: con la UI en segundo
   plano ésta no sondea RAM ni arma la interfaz, y el JRE arranca con `SerialGC` (menos CPU que G1).
