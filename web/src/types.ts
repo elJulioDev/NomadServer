@@ -70,7 +70,8 @@ export interface NomadBridge {
   ready(): void
   openServer(id: string): void
   closeServer(): void
-  createServer(name: string, ramMb: number, maxPlayers: number): void
+  /** `settingsJson` es un `ServerSettings`; `iconDataUrl` un data URL o `''`. */
+  createServer(name: string, ramMb: number, maxPlayers: number, settingsJson: string, iconDataUrl: string): void
   deleteServer(id: string): void
   startServer(id: string, ramMb: number, maxPlayers: number): void
   stopServer(id: string): void

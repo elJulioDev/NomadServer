@@ -121,8 +121,23 @@ export function createMock(): NomadBridge {
       activeId = null
       emit()
     },
-    createServer: (name, ramMb, maxPlayers) => {
-      servers.push({ id: `demo-${randomSuffix()}`, name, ramMb, maxPlayers, status: 'Stopped', players: [], version: null, iconVersion: null })
+    createServer: (name, ramMb, maxPlayers, settingsJson, _iconDataUrl) => {
+      const created: ServerSummary = {
+        id: `demo-${randomSuffix()}`,
+        name,
+        ramMb,
+        maxPlayers,
+        status: 'Stopped',
+        players: [],
+        version: null,
+        iconVersion: null,
+      }
+      servers.push(created)
+      try {
+        settings[created.id] = JSON.parse(settingsJson) as ServerSettings
+      } catch {
+        // JSON inválido en modo diseño: se ignora.
+      }
       emit()
     },
     deleteServer: (id) => {

@@ -65,7 +65,7 @@ export function ServersScreen({
 }: {
   servers: ServerSummary[]
   onOpen: (id: string, tab: Tab) => void
-  onCreate: (name: string, ramMb: number, maxPlayers: number) => void
+  onCreate: (name: string, ramMb: number, settings: ServerSettings, icon: string | null) => void
   onDelete: (id: string) => void
 }) {
   const [creating, setCreating] = useState(false)
@@ -130,8 +130,8 @@ export function ServersScreen({
       {creating && (
         <CreateServerDialog
           onDismiss={() => setCreating(false)}
-          onCreate={(name, ramMb, maxPlayers) => {
-            onCreate(name, ramMb, maxPlayers)
+          onCreate={(name, ramMb, settings, icon) => {
+            onCreate(name, ramMb, settings, icon)
             setCreating(false)
           }}
         />
@@ -648,29 +648,56 @@ function LogLine({ line }: { line: string }) {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
 
-function SettingsTab({
+function SettingsSection({
+  title,
+  variant,
+  children,
+}: {
+  title: string
+  variant: 'panel' | 'plain'
+  children: ReactNode
+}) {
+  if (variant === 'plain') {
+    return (
+      <section className="flex flex-col gap-4 border-t border-line pt-4 first:border-t-0 first:pt-0">
+        <h3 className="text-sm font-medium">{title}</h3>
+        {children}
+      </section>
+    )
+  }
+  return (
+    <Panel className="screen-line-top-none">
+      <PanelHeader>
+        <PanelTitle className="text-lg">{title}</PanelTitle>
+      </PanelHeader>
+      <PanelContent className="flex flex-col gap-4">{children}</PanelContent>
+    </Panel>
+  )
+}
+
+/** Formulario de ajustes reutilizable: pestaña "Ajustes" (panel) y diálogo "Nuevo servidor" (plain). */
+function SettingsForm({
+  settings,
+  onChange,
   ramMb,
   onRamChange,
-  settings,
   iconSrc,
-  onSave,
   onIcon,
+  variant,
 }: {
+  settings: ServerSettings
+  onChange: (patch: Partial<ServerSettings>) => void
   ramMb: number
   onRamChange: (ramMb: number) => void
-  settings: ServerSettings
   iconSrc: string | null
-  onSave: (settings: ServerSettings) => void
   onIcon: (dataUrl: string) => void
+  variant: 'panel' | 'plain'
 }) {
-  // El borrador se inicializa al abrir la pestaña; los pushes del snapshot no lo pisan.
-  const [draft, setDraft] = useState(settings)
   const [iconPreview, setIconPreview] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const dirty = JSON.stringify(draft) !== JSON.stringify(settings)
   const set = <K extends keyof ServerSettings>(key: K, value: ServerSettings[K]) =>
-    setDraft((prev) => ({ ...prev, [key]: value }))
+    onChange({ [key]: value } as Partial<ServerSettings>)
 
   const pickIcon = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
@@ -697,129 +724,145 @@ function SettingsTab({
     reader.readAsDataURL(file)
   }
 
+  const divider = variant === 'panel' ? <div className="stripe-divider border-x border-line" /> : null
+
   return (
     <>
-      <Panel className="screen-line-top-none">
-        <PanelHeader>
-          <PanelTitle className="text-lg">Identidad</PanelTitle>
-        </PanelHeader>
-        <PanelContent className="flex flex-col gap-4">
-          <div className="flex items-center gap-4">
-            <Thumbnail src={iconPreview ?? iconSrc} className="size-16" />
-            <div className="flex min-w-0 flex-col gap-1.5">
-              <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-                <Icon name="box" className="size-3.5" />
-                Cambiar imagen
-              </Button>
-              <p className="text-xs text-muted-foreground">PNG de 64×64; se recorta automáticamente.</p>
-            </div>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickIcon} />
+      <SettingsSection title="Identidad" variant={variant}>
+        <div className="flex items-center gap-4">
+          <Thumbnail src={iconPreview ?? iconSrc} className="size-16" />
+          <div className="flex min-w-0 flex-col gap-1.5">
+            <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+              <Icon name="box" className="size-3.5" />
+              Cambiar imagen
+            </Button>
+            <p className="text-xs text-muted-foreground">PNG de 64×64; se recorta automáticamente.</p>
           </div>
+          <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={pickIcon} />
+        </div>
 
-          <label className="flex flex-col gap-2">
-            <span className="text-sm">Descripción</span>
-            <textarea
-              value={draft.motd}
-              maxLength={120}
-              rows={2}
-              onChange={(event) => set('motd', event.target.value)}
-              placeholder="Mi servidor de Minecraft"
-              className={cn(INPUT, 'h-auto py-2')}
-            />
-          </label>
-        </PanelContent>
-      </Panel>
-
-      <div className="stripe-divider border-x border-line" />
-
-      <Panel className="screen-line-top-none">
-        <PanelHeader>
-          <PanelTitle className="text-lg">Jugadores</PanelTitle>
-        </PanelHeader>
-        <PanelContent className="flex flex-col gap-4">
-          <SettingRow label="Slots" hint="Máximo de jugadores">
-            <input
-              type="number"
-              min={1}
-              max={100}
-              value={draft.maxPlayers}
-              onChange={(event) => set('maxPlayers', clamp(Number(event.target.value) || 1, 1, 100))}
-              className={cn(INPUT, 'w-20 text-right tabular-nums')}
-            />
-          </SettingRow>
-          <Separator />
-          <SettingRow label="Lista blanca" hint="Solo entran jugadores autorizados">
-            <Switch checked={draft.whitelist} onChange={(v) => set('whitelist', v)} label="Lista blanca" />
-          </SettingRow>
-          <Separator />
-          <SettingRow label="Cracked" hint="No premium (online-mode = false)">
-            <Switch checked={draft.cracked} onChange={(v) => set('cracked', v)} label="Cracked" />
-          </SettingRow>
-        </PanelContent>
-      </Panel>
-
-      <div className="stripe-divider border-x border-line" />
-
-      <Panel className="screen-line-top-none">
-        <PanelHeader>
-          <PanelTitle className="text-lg">Mundo</PanelTitle>
-        </PanelHeader>
-        <PanelContent className="flex flex-col gap-4">
-          <SettingRow label="Modo de juego">
-            <Select value={draft.gamemode} onChange={(value) => set('gamemode', value as Gamemode)}>
-              <option value="survival">Supervivencia</option>
-              <option value="creative">Creativo</option>
-              <option value="spectator">Espectador</option>
-            </Select>
-          </SettingRow>
-          <Separator />
-          <SettingRow label="Dificultad">
-            <Select value={draft.difficulty} onChange={(value) => set('difficulty', value as Difficulty)}>
-              <option value="peaceful">Pacífico</option>
-              <option value="easy">Fácil</option>
-              <option value="normal">Normal</option>
-              <option value="hard">Difícil</option>
-            </Select>
-          </SettingRow>
-          <Separator />
-          <SettingRow
-            label="Vuelo"
-            hint="Evita que el servidor expulse a quien parezca volar (elytras, lag o plugins)"
-          >
-            <Switch checked={draft.allowFlight} onChange={(v) => set('allowFlight', v)} label="Vuelo" />
-          </SettingRow>
-          <Separator />
-          <SettingRow label="Protección del spawn" hint="Bloques protegidos alrededor del origen">
-            <input
-              type="number"
-              min={0}
-              max={1000}
-              value={draft.spawnProtection}
-              onChange={(event) => set('spawnProtection', clamp(Number(event.target.value) || 0, 0, 1000))}
-              className={cn(INPUT, 'w-20 text-right tabular-nums')}
-            />
-          </SettingRow>
-        </PanelContent>
-      </Panel>
-
-      <div className="stripe-divider border-x border-line" />
-
-      <Panel className="screen-line-top-none">
-        <PanelHeader>
-          <PanelTitle className="text-lg">Rendimiento</PanelTitle>
-        </PanelHeader>
-        <PanelContent className="flex flex-col gap-3">
-          <Slider
-            label={`RAM asignada: ${ramMb} MB`}
-            min={RAM_MIN}
-            max={RAM_MAX}
-            step={RAM_STEP}
-            value={ramMb}
-            onChange={onRamChange}
+        <label className="flex flex-col gap-2">
+          <span className="text-sm">Descripción</span>
+          <textarea
+            value={settings.motd}
+            maxLength={120}
+            rows={2}
+            onChange={(event) => set('motd', event.target.value)}
+            placeholder="Mi servidor de Minecraft"
+            className={cn(INPUT, 'h-auto py-2')}
           />
-          <p className="-mt-1 text-xs text-muted-foreground">Se aplica la próxima vez que enciendas el servidor.</p>
-        </PanelContent>
-      </Panel>
+        </label>
+      </SettingsSection>
+
+      {divider}
+
+      <SettingsSection title="Jugadores" variant={variant}>
+        <SettingRow label="Slots" hint="Máximo de jugadores">
+          <input
+            type="number"
+            min={1}
+            max={100}
+            value={settings.maxPlayers}
+            onChange={(event) => set('maxPlayers', clamp(Number(event.target.value) || 1, 1, 100))}
+            className={cn(INPUT, 'w-20 text-right tabular-nums')}
+          />
+        </SettingRow>
+        <Separator />
+        <SettingRow label="Lista blanca" hint="Solo entran jugadores autorizados">
+          <Switch checked={settings.whitelist} onChange={(v) => set('whitelist', v)} label="Lista blanca" />
+        </SettingRow>
+        <Separator />
+        <SettingRow label="Cracked" hint="No premium (online-mode = false)">
+          <Switch checked={settings.cracked} onChange={(v) => set('cracked', v)} label="Cracked" />
+        </SettingRow>
+      </SettingsSection>
+
+      {divider}
+
+      <SettingsSection title="Mundo" variant={variant}>
+        <SettingRow label="Modo de juego">
+          <Select value={settings.gamemode} onChange={(value) => set('gamemode', value as Gamemode)}>
+            <option value="survival">Supervivencia</option>
+            <option value="creative">Creativo</option>
+            <option value="spectator">Espectador</option>
+          </Select>
+        </SettingRow>
+        <Separator />
+        <SettingRow label="Dificultad">
+          <Select value={settings.difficulty} onChange={(value) => set('difficulty', value as Difficulty)}>
+            <option value="peaceful">Pacífico</option>
+            <option value="easy">Fácil</option>
+            <option value="normal">Normal</option>
+            <option value="hard">Difícil</option>
+          </Select>
+        </SettingRow>
+        <Separator />
+        <SettingRow
+          label="Vuelo"
+          hint="Evita que el servidor expulse a quien parezca volar (elytras, lag o plugins)"
+        >
+          <Switch checked={settings.allowFlight} onChange={(v) => set('allowFlight', v)} label="Vuelo" />
+        </SettingRow>
+        <Separator />
+        <SettingRow label="Protección del spawn" hint="Bloques protegidos alrededor del origen">
+          <input
+            type="number"
+            min={0}
+            max={1000}
+            value={settings.spawnProtection}
+            onChange={(event) => set('spawnProtection', clamp(Number(event.target.value) || 0, 0, 1000))}
+            className={cn(INPUT, 'w-20 text-right tabular-nums')}
+          />
+        </SettingRow>
+      </SettingsSection>
+
+      {divider}
+
+      <SettingsSection title="Rendimiento" variant={variant}>
+        <Slider
+          label={`RAM asignada: ${ramMb} MB`}
+          min={RAM_MIN}
+          max={RAM_MAX}
+          step={RAM_STEP}
+          value={ramMb}
+          onChange={onRamChange}
+        />
+        <p className="-mt-1 text-xs text-muted-foreground">Se aplica la próxima vez que enciendas el servidor.</p>
+      </SettingsSection>
+    </>
+  )
+}
+
+function SettingsTab({
+  ramMb,
+  onRamChange,
+  settings,
+  iconSrc,
+  onSave,
+  onIcon,
+}: {
+  ramMb: number
+  onRamChange: (ramMb: number) => void
+  settings: ServerSettings
+  iconSrc: string | null
+  onSave: (settings: ServerSettings) => void
+  onIcon: (dataUrl: string) => void
+}) {
+  // El borrador se inicializa al abrir la pestaña; los pushes del snapshot no lo pisan.
+  const [draft, setDraft] = useState(settings)
+  const dirty = JSON.stringify(draft) !== JSON.stringify(settings)
+
+  return (
+    <>
+      <SettingsForm
+        settings={draft}
+        onChange={(patch) => setDraft((prev) => ({ ...prev, ...patch }))}
+        ramMb={ramMb}
+        onRamChange={onRamChange}
+        iconSrc={iconSrc}
+        onIcon={onIcon}
+        variant="panel"
+      />
 
       <div className="stripe-divider border-x border-line" />
 
@@ -910,43 +953,49 @@ function CreateServerDialog({
   onCreate,
 }: {
   onDismiss: () => void
-  onCreate: (name: string, ramMb: number, maxPlayers: number) => void
+  onCreate: (name: string, ramMb: number, settings: ServerSettings, icon: string | null) => void
 }) {
   const [name, setName] = useState('')
   const [ramMb, setRamMb] = useState(2048)
-  const [maxPlayers, setMaxPlayers] = useState(20)
+  const [settings, setSettings] = useState<ServerSettings>(DEFAULT_SETTINGS)
+  const [icon, setIcon] = useState<string | null>(null)
 
   return (
-    <Modal onDismiss={onDismiss}>
+    <Modal
+      onDismiss={onDismiss}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onDismiss}>
+            Cancelar
+          </Button>
+          <Button disabled={name.trim().length === 0} onClick={() => onCreate(name.trim(), ramMb, settings, icon)}>
+            Crear
+          </Button>
+        </div>
+      }
+    >
       <p className="text-sm font-medium">Nuevo servidor</p>
 
-      <div className="flex flex-col gap-4">
+      <label className="flex flex-col gap-2">
+        <span className="text-sm">Nombre</span>
         <input
           autoFocus
           value={name}
           onChange={(event) => setName(event.target.value)}
-          placeholder="Nombre"
+          placeholder="Nombre del servidor"
           className={INPUT}
         />
-        <Slider label={`RAM asignada: ${ramMb} MB`} min={RAM_MIN} max={RAM_MAX} step={RAM_STEP} value={ramMb} onChange={setRamMb} />
-        <Slider
-          label={`Jugadores máximos: ${maxPlayers}`}
-          min={1}
-          max={40}
-          step={1}
-          value={maxPlayers}
-          onChange={setMaxPlayers}
-        />
-      </div>
+      </label>
 
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onDismiss}>
-          Cancelar
-        </Button>
-        <Button disabled={name.trim().length === 0} onClick={() => onCreate(name.trim(), ramMb, maxPlayers)}>
-          Crear
-        </Button>
-      </div>
+      <SettingsForm
+        settings={settings}
+        onChange={(patch) => setSettings((prev) => ({ ...prev, ...patch }))}
+        ramMb={ramMb}
+        onRamChange={setRamMb}
+        iconSrc={null}
+        onIcon={setIcon}
+        variant="plain"
+      />
     </Modal>
   )
 }
@@ -965,29 +1014,42 @@ function ConfirmDialog({
   onDismiss: () => void
 }) {
   return (
-    <Modal onDismiss={onDismiss}>
+    <Modal
+      onDismiss={onDismiss}
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onDismiss}>
+            Cancelar
+          </Button>
+          <Button variant="danger" onClick={onConfirm}>
+            {confirm}
+          </Button>
+        </div>
+      }
+    >
       <p className="text-sm font-medium">{title}</p>
       <p className="text-sm text-muted-foreground">{body}</p>
-      <div className="flex justify-end gap-2">
-        <Button variant="ghost" onClick={onDismiss}>
-          Cancelar
-        </Button>
-        <Button variant="danger" onClick={onConfirm}>
-          {confirm}
-        </Button>
-      </div>
     </Modal>
   )
 }
 
-function Modal({ children, onDismiss }: { children: ReactNode; onDismiss: () => void }) {
+function Modal({
+  children,
+  onDismiss,
+  footer,
+}: {
+  children: ReactNode
+  onDismiss: () => void
+  footer?: ReactNode
+}) {
   return (
     <div className="fixed inset-0 z-40 grid place-items-center bg-black/80 p-4" onClick={onDismiss}>
       <div
-        className="flex w-full max-w-sm flex-col gap-4 rounded-xl border border-border bg-popover p-4 shadow-lg"
+        className="flex max-h-[85dvh] w-full max-w-sm flex-col overflow-hidden rounded-xl border border-border bg-popover shadow-lg"
         onClick={(event) => event.stopPropagation()}
       >
-        {children}
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">{children}</div>
+        {footer && <div className="shrink-0 border-t border-line p-4">{footer}</div>}
       </div>
     </div>
   )

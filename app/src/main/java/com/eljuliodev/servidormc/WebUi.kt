@@ -197,11 +197,29 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         }
 
         @JavascriptInterface
-        fun createServer(name: String, ramMb: Int, maxPlayers: Int) = onMain {
+        fun createServer(
+            name: String,
+            ramMb: Int,
+            maxPlayers: Int,
+            settingsJson: String,
+            iconDataUrl: String,
+        ) = onMain {
+            val settings = settingsJson
+                .takeIf { it.isNotEmpty() }
+                ?.let { json -> runCatching { ServerSettings.fromJson(JSONObject(json)) }.getOrNull() }
             scope.launch {
-                withContext(Dispatchers.IO) {
-                    ServerProfileStore.add(activity, name, ramMb, maxPlayers)
+                val profile = withContext(Dispatchers.IO) {
+                    val created = ServerProfileStore.add(activity, name, ramMb, maxPlayers)
+                    val dir = File(activity.filesDir, "servers/${created.id}")
+                    if (iconDataUrl.isNotEmpty()) {
+                        runCatching { ServerSettings.saveIcon(dir, iconDataUrl) }
+                    }
+                    if (settings != null) {
+                        runCatching { ServerSettings.write(dir, settings) }
+                    }
+                    created
                 }
+                if (settings != null) settingsCache[profile.id] = settings
                 reload()
                 schedulePush()
             }

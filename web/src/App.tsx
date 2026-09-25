@@ -97,7 +97,9 @@ export default function App() {
         <ServersScreen
           servers={snapshot.servers}
           onOpen={open}
-          onCreate={(name, ramMb, maxPlayers) => bridge.createServer(name, ramMb, maxPlayers)}
+          onCreate={(name, ramMb, settings, icon) =>
+            bridge.createServer(name, ramMb, settings.maxPlayers, JSON.stringify(settings), icon ?? '')
+          }
           onDelete={(id) => bridge.deleteServer(id)}
         />
       )}
