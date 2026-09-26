@@ -3,6 +3,8 @@
     xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- El tuner público lee los DNS del dispositivo para el agente playit. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Servicio en primer plano para que el server siga vivo en segundo plano. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!-- API 33+: mostrar la notificación del server (con targetSdk 28 se concede por defecto). -->

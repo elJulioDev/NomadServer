@@ -6,6 +6,7 @@ import {
   type FileEntry,
   type FileListing,
   type OptimizePreview,
+  type PlayitInfo,
   type Snapshot,
   type VersionOption,
   type WorldSizes,
@@ -88,9 +89,10 @@ export function createMock(): NomadBridge {
   let activeId: string | null = null
   let lastLogId: string | null = null
   let lastLogCount = 0
+  let playit: PlayitInfo = { state: 'Off', linked: false, claimUrl: null, address: null, error: null }
 
   const emit = () => {
-    const snapshot: Snapshot = { servers: servers.map((s) => ({ ...s })), active: null, lanAddress: null }
+    const snapshot: Snapshot = { servers: servers.map((s) => ({ ...s })), active: null, lanAddress: null, playit }
     const active = servers.find((s) => s.id === activeId)
     if (active) {
       const list = logs[active.id] ?? []
@@ -396,6 +398,53 @@ export function createMock(): NomadBridge {
     },
     copy: (text) => {
       void navigator.clipboard?.writeText(text)
+    },
+    playitClaim: () => {
+      playit = { state: 'Claiming', linked: false, claimUrl: 'https://playit.gg/claim/demo1234', address: null, error: null }
+      emit()
+      window.setTimeout(() => {
+        if (playit.state === 'Claiming') {
+          playit = { state: 'Running', linked: true, claimUrl: null, address: 'nomad-demo.craft.ply.gg', error: null }
+          emit()
+        }
+      }, 3000)
+    },
+    playitLink: (secret) => {
+      if (!/^[0-9a-fA-F]{16,}$/.test(secret.trim())) {
+        playit = { state: 'Error', linked: false, claimUrl: null, address: null, error: 'La Secret Key no parece válida' }
+        emit()
+        return
+      }
+      playit = { state: 'Preparing', linked: false, claimUrl: null, address: null, error: null }
+      emit()
+      window.setTimeout(() => {
+        playit = { state: 'Running', linked: true, claimUrl: null, address: 'nomad-demo.craft.ply.gg', error: null }
+        emit()
+      }, 1500)
+    },
+    playitStart: () => {
+      if (!playit.linked) {
+        playit = { ...playit, state: 'Error', error: 'Linkea tu cuenta de playit.gg primero' }
+        emit()
+        return
+      }
+      playit = { ...playit, state: 'Preparing', error: null }
+      emit()
+      window.setTimeout(() => {
+        playit = { ...playit, state: 'Running', address: playit.address ?? 'nomad-demo.craft.ply.gg' }
+        emit()
+      }, 1200)
+    },
+    playitStop: () => {
+      playit = { ...playit, state: 'Off' }
+      emit()
+    },
+    playitUnlink: () => {
+      playit = { state: 'Off', linked: false, claimUrl: null, address: null, error: null }
+      emit()
+    },
+    playitOpenClaim: () => {
+      if (playit.claimUrl) window.open(playit.claimUrl, '_blank')
     },
   }
 }

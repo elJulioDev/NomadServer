@@ -85,6 +85,15 @@ optimizar el mundo, explorar los archivos del servidor y editar sus ajustes.
   el servidor) y al tocarla abre el **panel** de ese servidor.
 - **Parada limpia** — envía `stop` por stdin y fuerza el cierre a los 10 s si no responde.
 
+**Público**
+
+- **Túnel playit.gg** — la pestaña **Túnel** expone el servidor a internet **sin abrir puertos en el
+  router**. Con una cuenta gratis de playit.gg, un toque en **Vincular con playit.gg** abre el
+  navegador para **aprobar el agente** (una sola vez); la app recibe la clave, descarga y ejecuta el
+  agente oficial (~6 MB), crea el túnel Minecraft Java a `127.0.0.1:25565` y muestra la dirección
+  `tu-servidor.craft.ply.gg` para copiar. También se puede **pegar una Secret Key** ya generada en
+  playit.gg. El enrutado lo negocia playit según latencia.
+
 **Consola**
 
 - **Entrada de comandos** con historial (flechas arriba/abajo), eco local y botón de enviar.
@@ -135,13 +144,13 @@ optimizar el mundo, explorar los archivos del servidor y editar sus ajustes.
 |---|---|
 | Sistema | Android 8.0 o superior (API 26+) |
 | Arquitectura | **arm64-v8a** (el JRE embebido es arm64) |
-| Almacenamiento | ~250 MB libres (JRE ~130 MB + `server.jar` + mundo) |
+| Almacenamiento | ~250 MB libres (JRE ~130 MB + `server.jar` + mundo); el agente playit suma ~6 MB |
 | Red | Internet la primera vez (descarga del `server.jar` desde Mojang; el JRE va dentro de la APK) |
 | RAM | Recomendado un teléfono de 6 GB+; asigna 2–4 GB al server |
 
 > [!IMPORTANT]
-> Los jugadores solo pueden unirse desde la **misma red** que el teléfono (LAN). El acceso público
-> desde internet está en el [Roadmap](#roadmap).
+> Para jugar desde **otra red** hay que linkear **playit.gg** en la pestaña *Túnel*. Sin eso, los
+> jugadores solo pueden entrar desde la **misma red Wi-Fi** que el teléfono.
 
 ---
 
@@ -167,8 +176,12 @@ optimizar el mundo, explorar los archivos del servidor y editar sus ajustes.
 4. Abre Minecraft Java en tu PC → *Multijugador* → *Conectar a un servidor* → pega `IP:25565`.
 5. **Detener** guarda el mundo; se conserva aunque cierres la app o apagues el teléfono.
 
-Las pestañas de la barra inferior (solo iconos) son: **Panel · Consola · Jugadores · Mundo ·
+Las pestañas de la barra inferior (solo iconos) son: **Panel · Túnel · Consola · Jugadores · Mundo ·
 Archivos · Ajustes**.
+
+> [!TIP]
+> Para que entren desde **otras redes**, abre la pestaña **Túnel**, toca **Vincular con playit.gg**,
+> aprueba el agente una vez en el navegador y comparte la dirección `…craft.ply.gg` que aparece.
 
 > [!TIP]
 > ¿Algo falla? Abre **Consola** y toca **Copiar**: el log completo es lo primero que se necesita
@@ -212,6 +225,10 @@ flowchart LR
 - **`ServerService`** es un servicio en primer plano que se inicia cuando un servidor pasa a
   activo y se detiene cuando se apaga; mantiene vivo el proceso en segundo plano y publica la
   notificación (icono, nombre, jugadores, acción **Detener** y apertura del panel al tocarla).
+- **`PlayitManager`** descarga y ejecuta el agente oficial de playit.gg para el túnel público:
+  parchea el binario para que lea un `resolv.conf` propio (Android no tiene `/etc/resolv.conf`),
+  vincula la cuenta con el flujo de *claim* (código + aprobación en el navegador) o con una Secret
+  Key pegada, y crea/reutiliza el túnel Minecraft Java por la API con el agent-key.
 - **`JreInstaller`** extrae `assets/jre.zip` una sola vez y restaura los bits de ejecución de
   `bin/*` (los ZIP no guardan permisos).
 - **Stack**: Kotlin + coroutines/StateFlow · React 19 + TypeScript + Tailwind CSS 4 (Vite) ·
@@ -233,7 +250,7 @@ flowchart LR
 | 7 | OK | **Mundo** — semilla, espacio por dimensión, regenerar Nether/End, importar `.zip` |
 | 8 | OK | **Archivos y optimizador** — explorador de solo lectura y optimización con vista previa |
 | 9 | OK | **Segundo plano** — servicio en primer plano con notificación (nombre, jugadores y Detener) |
-| 10 | Pendiente | **Túnel Playit.gg** — acceso público desde cualquier red, sin abrir puertos en el router |
+| 10 | OK | **Túnel Playit.gg** — acceso público desde cualquier red, sin abrir puertos en el router |
 | 11 | Pendiente | **World border** — control del borde de mundo desde Ajustes |
 | 12 | Pendiente | **Backups** — copia del mundo antes de operaciones destructivas |
 | 13 | Pendiente | **Fabric y mods** — loader Fabric e instalación desde Modrinth (CurseForge después) |
@@ -249,7 +266,7 @@ flowchart LR
 
 Lo que todavía **no** está implementado y se planea:
 
-- **Túnel Playit.gg** — jugar con amigos de otras redes sin abrir puertos.
+- **Túnel Playit.gg** — ya disponible en la pestaña *Túnel* (Secret Key + botón de servidor online).
 - **World border** — fijar el borde del mundo desde *Ajustes*.
 - **Backups** — copia del mundo antes de regenerar, importar u optimizar. Hoy esas acciones
   avisan de que son irreversibles.
@@ -291,6 +308,12 @@ Además:
   La palanca más efectiva son las distancias de visión/simulación, ajustables en *Ajustes*.
 - **Sin 24/7 garantizado desde el móvil** — depende de la luz, el Wi-Fi y la batería; para un
   server siempre online usa un equipo externo (ver [Uso rápido](#uso-rápido)).
+- **Túnel playit.gg** — el agente es un binario aparte de playit.gg (se descarga la primera vez) y
+  el túnel apunta siempre a `127.0.0.1:25565`; hay **uno por app**, así que solo un servidor puede
+  estar público a la vez. Requiere **crear una cuenta gratis** en playit.gg y **aprobar el agente en
+  el navegador** una sola vez (después la app recuerda la clave); necesita que la app siga viva (el
+  servicio en primer plano la mantiene mientras el servidor corre) y la latencia depende del nodo de
+  playit más cercano.
 - **Una APK ≈ 60 MB** — el JRE va dentro comprimido; es el precio de no depender de nada externo.
 - **Solo un proceso por perfil** — arrancar dos perfiles a la vez es posible pero comparten el
   mismo JRE y la RAM que les asignes.
@@ -341,6 +364,7 @@ app/src/main/java/com/eljuliodev/servidormc/
 ├── FileBrowser.kt           # explorador de archivos del servidor
 ├── Nbt.kt                   # lector NBT mínimo (semilla, InhabitedTime)
 ├── JreInstaller.kt          # extracción de assets/jre.zip
+├── PlayitManager.kt         # túnel público playit.gg (agente estático + API)
 └── LanAddress.kt            # IP LAN (Wi-Fi primero, si no cualquier IPv4 privada)
 web/                         # UI: Vite + React + TypeScript + Tailwind (fuente)
 ├── src/bridge.ts            # puente con Kotlin + mock para diseñar en el navegador

@@ -178,6 +178,8 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
         view.addJavascriptInterface(Bridge(), "NomadBridge")
         view.loadUrl("https://appassets.androidplatform.net/assets/ui/index.html")
         observeList()
+        // El túnel público es global: cualquier cambio de estado se refleja en el snapshot.
+        scope.launch { app.playit.info.collect { schedulePush() } }
     }
 
     fun dispose() {
@@ -557,6 +559,30 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
             clipboard.setPrimaryClip(ClipData.newPlainText("NomadServer", text))
             Toast.makeText(activity, "Copiado", Toast.LENGTH_SHORT).show()
         }
+
+        /** Túnel público playit.gg: claim con el navegador, linkear una key, encender y apagar. */
+        @JavascriptInterface
+        fun playitClaim() = onMain { app.playit.claim() }
+
+        @JavascriptInterface
+        fun playitLink(secret: String) = onMain { app.playit.link(secret) }
+
+        @JavascriptInterface
+        fun playitStart() = onMain { app.playit.start() }
+
+        @JavascriptInterface
+        fun playitStop() = onMain { app.playit.stop() }
+
+        @JavascriptInterface
+        fun playitUnlink() = onMain { app.playit.unlink() }
+
+        /** Abre en el navegador el enlace de aprobación pendiente del claim. */
+        @JavascriptInterface
+        fun playitOpenClaim() = onMain {
+            val url = app.playit.info.value.claimUrl ?: return@onMain
+            runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                .onFailure { toast("No se pudo abrir el navegador") }
+        }
     }
 
     private fun reload() {
@@ -627,6 +653,7 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
 
         val root = JSONObject().apply {
             put("servers", servers)
+            put("playit", app.playit.info.value.toJson())
             versions?.let { list ->
                 put(
                     "versions",
@@ -738,6 +765,14 @@ class WebUi(private val activity: Activity, private val app: NomadApplication) {
     private fun optimizeMode(mode: String): RegionOptimizer.Mode =
         if (mode == RegionOptimizer.Mode.REMOVE_UNVISITED.id) RegionOptimizer.Mode.REMOVE_UNVISITED
         else RegionOptimizer.Mode.COMPACT
+
+    private fun PlayitInfo.toJson(): JSONObject = JSONObject().apply {
+        put("state", state.name)
+        put("linked", linked)
+        put("claimUrl", claimUrl ?: JSONObject.NULL)
+        put("address", address ?: JSONObject.NULL)
+        put("error", error ?: JSONObject.NULL)
+    }
 
     private fun RegionOptimizer.Preview.toJson(): JSONObject = JSONObject().apply {
         put("mode", mode)

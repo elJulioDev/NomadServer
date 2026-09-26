@@ -21,6 +21,9 @@ class NomadApplication : Application() {
     private val managers = mutableMapOf<String, ServerManager>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /** Túnel público de playit.gg; es global (un agente para toda la app). */
+    val playit: PlayitManager by lazy { PlayitManager(this) }
+
     /** Un ServerManager por perfil, creado la primera vez y reutilizado después. */
     fun managerFor(serverId: String): ServerManager =
         managers.getOrPut(serverId) {

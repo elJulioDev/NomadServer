@@ -93,6 +93,7 @@ export default function App() {
           logs={logs}
           lanAddress={snapshot.lanAddress}
           versions={snapshot.versions}
+          playit={snapshot.playit ?? null}
           tab={tab}
           onTabChange={setTab}
           onCommand={sendCommand}

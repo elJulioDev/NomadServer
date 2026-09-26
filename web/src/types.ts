@@ -1,6 +1,6 @@
 export type Status = 'Stopped' | 'Starting' | 'Running' | 'Stopping' | 'Error'
 
-export type Tab = 'panel' | 'console' | 'players' | 'world' | 'files' | 'settings'
+export type Tab = 'panel' | 'tunnel' | 'console' | 'players' | 'world' | 'files' | 'settings'
 
 /** Resultado/vista previa del optimizador de mundos. */
 export interface OptimizePreview {
@@ -150,6 +150,22 @@ export interface Snapshot {
   lanAddress: string | null
   /** Versiones del manifest, sólo tras `fetchVersions()`. */
   versions?: VersionOption[]
+  /** Túnel público de playit.gg (global, no por servidor). */
+  playit?: PlayitInfo | null
+}
+
+export type PlayitState = 'Off' | 'Preparing' | 'Claiming' | 'Running' | 'Error'
+
+/** Estado del tuner público de playit.gg. */
+export interface PlayitInfo {
+  state: PlayitState
+  /** true si ya hay una Secret Key guardada (cuenta linkeada). */
+  linked: boolean
+  /** Enlace de aprobación pendiente (flujo de claim con navegador). */
+  claimUrl: string | null
+  /** Dirección pública (`xxx.craft.ply.gg`) cuando playit la asignó. */
+  address: string | null
+  error: string | null
 }
 
 /** Lo que Kotlin expone como `window.NomadBridge`. */
@@ -200,6 +216,18 @@ export interface NomadBridge {
   /** data URL (`data:image/…;base64,…`) con el icono de 64x64. */
   setServerIcon(id: string, dataUrl: string): void
   copy(text: string): void
+  /** playit.gg: genera un código y prepara la aprobación en el navegador. */
+  playitClaim(): void
+  /** playit.gg: guarda y valida una Secret Key pegada por el usuario. */
+  playitLink(secret: string): void
+  /** playit.gg: enciende el agente. */
+  playitStart(): void
+  /** playit.gg: apaga el agente (el servidor sigue). */
+  playitStop(): void
+  /** playit.gg: borra la Secret Key y desvincula la cuenta. */
+  playitUnlink(): void
+  /** playit.gg: abre en el navegador el enlace de aprobación pendiente. */
+  playitOpenClaim(): void
 }
 
 /** Tope de log que retiene el cliente; Kotlin recorta el delta, no el historial. */

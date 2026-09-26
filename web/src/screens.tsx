@@ -36,6 +36,7 @@ import {
   type ActiveServer,
   type Difficulty,
   type Gamemode,
+  type PlayitInfo,
   type ServerSettings,
   type ServerSummary,
   type Status,
@@ -221,6 +222,7 @@ function ServerRow({
 
 const TABS: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'panel', label: 'Panel', icon: 'home' },
+  { id: 'tunnel', label: 'Túnel', icon: 'wifi' },
   { id: 'console', label: 'Consola', icon: 'terminal' },
   { id: 'players', label: 'Jugadores', icon: 'users' },
   { id: 'world', label: 'Mundo', icon: 'globe' },
@@ -234,6 +236,7 @@ export function DetailScreen({
   logs,
   lanAddress,
   versions,
+  playit,
   tab,
   onTabChange,
   onCommand,
@@ -244,6 +247,7 @@ export function DetailScreen({
   logs: string[]
   lanAddress: string | null
   versions?: VersionOption[]
+  playit: PlayitInfo | null
   tab: Tab
   onTabChange: (tab: Tab) => void
   onCommand: (text: string) => void
@@ -290,6 +294,7 @@ export function DetailScreen({
               onExtend={() => bridge.extendStartTimer(server.id)}
             />
           )}
+          {tab === 'tunnel' && <TunnelTab server={server} active={active} playit={playit} />}
           {tab === 'console' && (
             <ConsoleTab logs={logs} total={active?.logTotal ?? 0} status={status} onCommand={onCommand} />
           )}
@@ -1760,6 +1765,157 @@ function SettingsForm({
         </p>
       </SettingsSection>
     </>
+  )
+}
+
+/**
+ * Pestaña "Túnel": linkea playit.gg pegando la Secret Key (wizard Third party app → Other) y deja
+ * el servidor público. El agente y el túnel se gestionan en Kotlin (PlayitManager).
+ */
+function TunnelTab({
+  server,
+  active,
+  playit,
+}: {
+  server: ServerSummary
+  active: ActiveServer | null
+  playit: PlayitInfo | null
+}) {
+  const [secret, setSecret] = useState('')
+  const state = playit?.state ?? 'Off'
+  const linked = playit?.linked ?? false
+  const status = active?.status ?? server.status
+  const online = status === 'Running' || status === 'Starting'
+  const tunnelOn = state === 'Running' || state === 'Preparing'
+  const claiming = state === 'Claiming'
+
+  const statusText: Record<string, string> = {
+    Off: 'Túnel apagado.',
+    Preparing: 'Preparando el agente de playit…',
+    Claiming: 'Esperando que apruebes el agente en el navegador…',
+    Running: playit?.address
+      ? 'En línea. Comparte la dirección con tus jugadores.'
+      : 'Conectando; creando el túnel…',
+    Error: playit?.error ?? 'No se pudo activar el túnel.',
+  }
+
+  return (
+    <Panel className="screen-line-top-none">
+      <PanelHeader>
+        <PanelTitle className="text-lg">Servidor público</PanelTitle>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Con playit.gg tus jugadores entran desde cualquier red, sin abrir puertos en el router.
+        </p>
+      </PanelHeader>
+      <PanelContent className="flex flex-col gap-4">
+        {!linked ? (
+          <>
+            <p className="text-sm">
+              Necesitas una cuenta gratis en <b>playit.gg</b>. Toca el botón y, en el navegador,
+              confirma el agente: la app recibe la clave y crea el túnel sola.
+            </p>
+
+            {claiming && playit?.claimUrl ? (
+              <>
+                <Button className="h-9 w-full" onClick={() => bridge.playitOpenClaim()}>
+                  <Icon name="globe" className="size-4" />
+                  Abrir playit.gg y aprobar
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Esperando la aprobación… Al confirmarla, el servidor queda listo para ser público.
+                </p>
+              </>
+            ) : (
+              <Button
+                className="h-9 w-full"
+                disabled={state === 'Preparing'}
+                onClick={() => bridge.playitClaim()}
+              >
+                <Icon name="globe" className="size-4" />
+                Vincular con playit.gg
+              </Button>
+            )}
+
+            {playit?.error && <p className="text-xs text-destructive">{playit.error}</p>}
+
+            <div className="text-center text-xs text-muted-foreground">o</div>
+
+            <details className="flex flex-col gap-2">
+              <summary className="cursor-pointer text-sm">Ya tengo una Secret Key</summary>
+              <div className="mt-2 flex flex-col gap-2">
+                <input
+                  value={secret}
+                  onChange={(event) => setSecret(event.target.value)}
+                  placeholder="Pega aquí la Secret Key"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  className={INPUT}
+                />
+                <Button
+                  variant="outline"
+                  className="w-full"
+                  disabled={!secret.trim()}
+                  onClick={() => {
+                    bridge.playitLink(secret)
+                    setSecret('')
+                  }}
+                >
+                  Usar Secret Key
+                </Button>
+                <p className="text-xs text-muted-foreground">
+                  Se genera en playit.gg → Agents → Create agent.
+                </p>
+              </div>
+            </details>
+          </>
+        ) : (
+          <>
+            <SettingRow label="Túnel público" hint="Activo mientras el servidor está encendido">
+              <Switch
+                checked={tunnelOn}
+                onChange={(v) => (v ? bridge.playitStart() : bridge.playitStop())}
+                label="Público"
+              />
+            </SettingRow>
+
+            <div className="flex items-start gap-2 text-xs text-muted-foreground">
+              <Icon name="globe" className="mt-0.5 size-4 shrink-0" />
+              <p>{statusText[state]}</p>
+            </div>
+
+            {playit?.address && (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-line bg-secondary/40 px-3 py-2">
+                <span className="min-w-0 truncate font-mono text-sm">{playit.address}</span>
+                <IconButton icon="copy" label="Copiar dirección" onClick={() => bridge.copy(playit.address!)} />
+              </div>
+            )}
+
+            {!online ? (
+              <Button
+                className="h-9 w-full"
+                onClick={() => {
+                  bridge.startServer(server.id, server.ramMb, server.maxPlayers)
+                  bridge.playitStart()
+                }}
+              >
+                <Icon name="play" className="size-4" />
+                Iniciar servidor online
+              </Button>
+            ) : !tunnelOn ? (
+              <Button className="h-9 w-full" onClick={() => bridge.playitStart()}>
+                <Icon name="globe" className="size-4" />
+                Activar túnel
+              </Button>
+            ) : null}
+
+            <Button type="button" variant="ghost" size="sm" onClick={() => bridge.playitUnlink()}>
+              Desvincular cuenta
+            </Button>
+          </>
+        )}
+      </PanelContent>
+    </Panel>
   )
 }
 
